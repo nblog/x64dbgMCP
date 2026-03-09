@@ -1,4 +1,5 @@
-
+.vs/
+obj/
 out/
 x64dbgMCP/x64dbgMCP.vcxproj.*
 x64dbgMCP/plugintemplate/pluginsdk/
