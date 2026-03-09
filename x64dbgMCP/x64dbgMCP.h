@@ -1,4 +1,6 @@
-﻿#pragma once
+#pragma once
+
+#include "x64dbgHandler.h"
 
 namespace x64dbgMCP {
 
@@ -6,23 +8,10 @@ namespace x64dbgMCP {
     using namespace System::IO;
     using namespace System::Threading;
     using namespace System::Threading::Tasks;
-    using namespace System::Collections::Generic;
-    using namespace System::ComponentModel;
     using namespace Microsoft::AspNetCore::Builder;
     using namespace Microsoft::Extensions::DependencyInjection;
     using namespace ModelContextProtocol::Server;
     using namespace ModelContextProtocol::Protocol;
-
-    [McpServerToolType]
-    public ref class McpTools
-    {
-    public:
-        [McpServerTool, Description("Echoes the input back.")]
-        static String^ Echo(String^ message)
-        {
-            return "echo: " + message;
-        }
-    };
 
     public ref class McpServerHost
     {
