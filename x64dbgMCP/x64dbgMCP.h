@@ -7,10 +7,22 @@ namespace x64dbgMCP {
     using namespace System::Threading;
     using namespace System::Threading::Tasks;
     using namespace System::Collections::Generic;
+    using namespace System::ComponentModel;
     using namespace Microsoft::AspNetCore::Builder;
     using namespace Microsoft::Extensions::DependencyInjection;
     using namespace ModelContextProtocol::Server;
     using namespace ModelContextProtocol::Protocol;
+
+    [McpServerToolType]
+    public ref class McpTools
+    {
+    public:
+        [McpServerTool, Description("Echoes the input back.")]
+        static String^ Echo(String^ message)
+        {
+            return "echo: " + message;
+        }
+    };
 
     public ref class McpServerHost
     {
@@ -54,12 +66,6 @@ namespace x64dbgMCP {
         }
 
     private:
-        // simple echo tool for PoC validation
-        static String^ Echo(String^ message)
-        {
-            return "echo: " + message;
-        }
-
         static void ConfigureMcpOptions(McpServerOptions^ opts)
         {
             auto asmName = Reflection::Assembly::GetExecutingAssembly()->GetName();
@@ -80,19 +86,8 @@ namespace x64dbgMCP {
                     builder->Services,
                     gcnew Action<McpServerOptions^>(&ConfigureMcpOptions));
 
-                // Create and register echo tool
-                auto toolOpts = gcnew McpServerToolCreateOptions();
-                toolOpts->Name = "echo";
-                toolOpts->Description = "Echoes the input back";
-
-                auto echoTool = McpServerTool::Create(
-                    gcnew Func<String^, String^>(&McpServerHost::Echo),
-                    toolOpts);
-
-                auto tools = gcnew List<McpServerTool^>();
-                tools->Add(echoTool);
-                McpServerBuilderExtensions::WithTools(mcpBuilder,
-                    safe_cast<IEnumerable<McpServerTool^>^>(tools));
+                // Auto-discover tools from [McpServerToolType] classes
+                McpServerBuilderExtensions::WithToolsFromAssembly(mcpBuilder);
 
                 // Add HTTP transport (enables Streamable HTTP + legacy SSE)
                 HttpMcpServerBuilderExtensions::WithHttpTransport(mcpBuilder, nullptr);
