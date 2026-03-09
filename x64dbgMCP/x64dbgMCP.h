@@ -28,10 +28,9 @@ namespace x64dbgMCP {
     {
     private:
         static WebApplication^ _app;
+        static String^ _httpUrl;
         static Task^ _serverTask;
         static bool _running = false;
-        static int _port;
-		static String^ _httpUrl;
 
         static void Log(String^ msg)
         {
@@ -46,8 +45,7 @@ namespace x64dbgMCP {
 		static bool Start(int port, String^ httpUrl)
         {
             if (_running) return false;
-            _port = port;
-			_httpUrl = httpUrl ? httpUrl : String::Format("http://localhost:{0}", port);
+            _httpUrl = httpUrl ? httpUrl : String::Format("http://localhost:{0}", port);
             _serverTask = Task::Run(gcnew Action(&RunServerEntry));
             _running = true;
             return _running;
@@ -77,8 +75,6 @@ namespace x64dbgMCP {
         static void RunServerEntry()
         {
             try {
-                Log("Starting MCP HTTP server on port " + _port);
-
                 auto builder = WebApplication::CreateSlimBuilder();
 
                 // Register MCP server with options
@@ -102,7 +98,7 @@ namespace x64dbgMCP {
                 //   Legacy SSE:      GET /sse, POST /message
                 McpEndpointRouteBuilderExtensions::MapMcp(_app, "");
 
-                Log("WebApplication starting");
+				Log("WebApplication starting on " + _httpUrl);
                 _app->RunAsync()->GetAwaiter().GetResult();
             }
             catch (Exception^ ex) {
