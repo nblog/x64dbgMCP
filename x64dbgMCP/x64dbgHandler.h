@@ -14,6 +14,14 @@ namespace x64dbgMCP {
 
 #pragma region Analysis Tools
 
+		// ── Project ──
+		[McpServerTool, Description("Get the project information about the currently loaded project.")]
+        static auto GetProjectInfo()
+        {
+            // TODO
+            throw gcnew NotImplementedException();
+		}
+
         // ── Symbol ──
 
         [McpServerTool, Description("Get the list of all symbols in the debugged module.")]
