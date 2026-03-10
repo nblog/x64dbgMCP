@@ -1,11 +1,46 @@
 #pragma once
 
+#include "plugintemplate/pluginmain.h"
+
 namespace x64dbgMCP {
 
     using namespace System;
     using namespace System::Collections::Generic;
     using namespace System::ComponentModel;
     using namespace ModelContextProtocol::Server;
+
+    public ref class ProjectInfoResult
+    {
+    public:
+        [Description("Plugin Version")]
+        static property String^ Version
+        {
+            String^ get()
+            {
+                return (gcnew System::Version(
+                    (PLUGIN_VERSION >> 16) & 0xFF,
+                    (PLUGIN_VERSION >> 8) & 0xFF,
+                    PLUGIN_VERSION & 0xFF))->ToString();
+            }
+        }
+		[Description("Target Architecture")]
+        property String^ Platform {
+			String^ get()
+			{
+#ifdef _WIN64
+				return BridgeIsARM64Emulated() ? "arm64" : "x64";
+#else
+				return "x86";
+#endif
+			}
+        }
+		[Description("x64dbg Directory")]
+        property String^ X64dbgUserDir {
+            String^ get() {
+                return gcnew String(BridgeUserDirectory());
+            }
+        }
+    };
 
     [McpServerToolType]
     public ref class McpTools
@@ -14,17 +49,16 @@ namespace x64dbgMCP {
 
 #pragma region Analysis Tools
 
-		// ── Project ──
-		[McpServerTool, Description("Get the project information about the currently loaded project.")]
+        // ── Project ──
+        [McpServerTool(ReadOnly = true), Description("Get the project information about the currently loaded project.")]
         static auto GetProjectInfo()
         {
-            // TODO
-            throw gcnew NotImplementedException();
-		}
+            return gcnew ProjectInfoResult();
+        }
 
         // ── Symbol ──
 
-        [McpServerTool, Description("Get the list of all symbols in the debugged module.")]
+        [McpServerTool(ReadOnly = true), Description("Get the list of all symbols in the debugged module.")]
         static auto GetSymbolList()
         {
             // TODO
@@ -478,12 +512,12 @@ namespace x64dbgMCP {
             throw gcnew NotImplementedException();
         }
 
-		[McpServerTool, Description("Restart the debugged process.")]
+        [McpServerTool, Description("Restart the debugged process.")]
         static auto DebugRestart()
         {
             // TODO
             throw gcnew NotImplementedException();
-		}
+        }
 
         [McpServerTool, Description("Step into the next instruction.")]
         static auto StepInto()

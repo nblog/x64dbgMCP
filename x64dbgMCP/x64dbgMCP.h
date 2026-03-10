@@ -31,7 +31,7 @@ namespace x64dbgMCP {
     public:
         static property bool IsRunning { bool get() { return _running; } }
 
-		static bool Start(int port, String^ httpUrl)
+        static bool Start(int port, String^ httpUrl)
         {
             if (_running) return false;
             _httpUrl = httpUrl ? httpUrl : String::Format("http://localhost:{0}", port);
@@ -58,7 +58,7 @@ namespace x64dbgMCP {
             auto asmName = Reflection::Assembly::GetExecutingAssembly()->GetName();
             opts->ServerInfo = gcnew Implementation();
             opts->ServerInfo->Name = asmName->Name;
-            opts->ServerInfo->Version = "1.0.0";
+			opts->ServerInfo->Version = ProjectInfoResult::Version;
         }
 
         static void RunServerEntry()
@@ -87,7 +87,7 @@ namespace x64dbgMCP {
                 //   Legacy SSE:      GET /sse, POST /message
                 McpEndpointRouteBuilderExtensions::MapMcp(_app, "");
 
-				Log("WebApplication starting on " + _httpUrl);
+                Log("WebApplication starting on " + _httpUrl);
                 _app->RunAsync()->GetAwaiter().GetResult();
             }
             catch (Exception^ ex) {
