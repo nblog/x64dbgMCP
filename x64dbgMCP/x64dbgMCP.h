@@ -58,7 +58,7 @@ namespace x64dbgMCP {
             auto asmName = Reflection::Assembly::GetExecutingAssembly()->GetName();
             opts->ServerInfo = gcnew Implementation();
             opts->ServerInfo->Name = asmName->Name;
-			opts->ServerInfo->Version = ProjectInfoResult::Version;
+			opts->ServerInfo->Version = (gcnew ProjectInfoResult())->Version;
         }
 
         static void RunServerEntry()

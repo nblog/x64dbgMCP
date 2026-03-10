@@ -13,7 +13,7 @@ namespace x64dbgMCP {
     {
     public:
         [Description("Plugin Version")]
-        static property String^ Version
+        property String^ Version
         {
             String^ get()
             {
@@ -35,7 +35,7 @@ namespace x64dbgMCP {
 			}
         }
 		[Description("x64dbg Directory")]
-        property String^ X64dbgUserDir {
+        property String^ X64dbg_dir {
             String^ get() {
                 return gcnew String(BridgeUserDirectory());
             }
