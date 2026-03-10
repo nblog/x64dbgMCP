@@ -61,7 +61,7 @@ namespace x64dbgMCP {
         [McpServerTool(ReadOnly = true), Description("Get the list of all symbols in the debugged module.")]
         static auto GetSymbolList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -69,7 +69,7 @@ namespace x64dbgMCP {
         static auto GetSymbolAt(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -78,7 +78,7 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Get the list of all recognized functions.")]
         static auto GetFunctionList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -86,7 +86,7 @@ namespace x64dbgMCP {
         static auto GetFunctionAt(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -97,7 +97,7 @@ namespace x64dbgMCP {
             [Description("Whether this is a manual/user-defined entry")] bool manual,
             [Description("Number of instructions in the function")] int instructionCount)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -105,7 +105,7 @@ namespace x64dbgMCP {
         static auto DeleteFunction(
             [Description("Virtual address of the function to delete")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -114,7 +114,7 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Get the list of all labels.")]
         static auto GetLabelList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -122,7 +122,7 @@ namespace x64dbgMCP {
         static auto GetLabelAt(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -133,7 +133,7 @@ namespace x64dbgMCP {
             [Description("Whether this is a manual/user-defined label")] bool manual,
             [Description("Whether this label is temporary")] bool temporary)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -141,7 +141,7 @@ namespace x64dbgMCP {
         static auto DeleteLabel(
             [Description("Virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -149,7 +149,7 @@ namespace x64dbgMCP {
         static auto IsLabelTemporary(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -157,7 +157,7 @@ namespace x64dbgMCP {
         static auto LabelFromString(
             [Description("Label name to resolve")] String^ label)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -166,7 +166,7 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Get the list of all comments.")]
         static auto GetCommentList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -174,7 +174,7 @@ namespace x64dbgMCP {
         static auto GetCommentAt(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -184,7 +184,7 @@ namespace x64dbgMCP {
             [Description("Comment text")] String^ text,
             [Description("Whether this is a manual/user-defined comment")] bool manual)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -192,7 +192,7 @@ namespace x64dbgMCP {
         static auto DeleteComment(
             [Description("Virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -201,7 +201,7 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Get the list of all bookmarks.")]
         static auto GetBookmarkList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -209,7 +209,7 @@ namespace x64dbgMCP {
         static auto GetBookmarkAt(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -218,7 +218,7 @@ namespace x64dbgMCP {
             [Description("Virtual address")] String^ addr,
             [Description("Whether this is a manual/user-defined bookmark")] bool manual)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -226,7 +226,7 @@ namespace x64dbgMCP {
         static auto DeleteBookmark(
             [Description("Virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -236,7 +236,7 @@ namespace x64dbgMCP {
         static auto GetXrefs(
             [Description("Target virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -245,7 +245,7 @@ namespace x64dbgMCP {
             [Description("Target virtual address")] String^ addr,
             [Description("Source virtual address of the reference")] String^ from)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -253,7 +253,7 @@ namespace x64dbgMCP {
         static auto DeleteAllXrefs(
             [Description("Target virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -261,7 +261,7 @@ namespace x64dbgMCP {
         static auto GetXrefCountAt(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -269,7 +269,7 @@ namespace x64dbgMCP {
         static auto GetXrefTypeAt(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -278,7 +278,7 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Get the list of all argument ranges.")]
         static auto GetArgumentList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -286,7 +286,7 @@ namespace x64dbgMCP {
         static auto GetArgumentAt(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -297,7 +297,7 @@ namespace x64dbgMCP {
             [Description("Whether this is a manual/user-defined entry")] bool manual,
             [Description("Number of instructions")] int instructionCount)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -305,7 +305,7 @@ namespace x64dbgMCP {
         static auto DeleteArgument(
             [Description("Virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -314,14 +314,14 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Get the list of all loaded modules.")]
         static auto GetModuleList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Get information about the main (debugged) module.")]
         static auto GetMainModuleInfo()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -329,7 +329,7 @@ namespace x64dbgMCP {
         static auto GetModuleByAddr(
             [Description("Virtual address within the module")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -337,14 +337,14 @@ namespace x64dbgMCP {
         static auto GetModuleByName(
             [Description("Module name (e.g. kernel32.dll)")] String^ name)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Get the section list of the main module.")]
         static auto GetMainModuleSectionList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -352,7 +352,7 @@ namespace x64dbgMCP {
         static auto GetSectionListByAddr(
             [Description("Virtual address within the module")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -360,7 +360,7 @@ namespace x64dbgMCP {
         static auto GetSectionListByName(
             [Description("Module name")] String^ name)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -368,7 +368,7 @@ namespace x64dbgMCP {
         static auto GetExports(
             [Description("Virtual address within the module")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -376,7 +376,7 @@ namespace x64dbgMCP {
         static auto GetImports(
             [Description("Virtual address within the module")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -386,14 +386,14 @@ namespace x64dbgMCP {
         static auto IsValidPtr(
             [Description("Virtual address to check")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Get the memory map of the debugged process.")]
         static auto GetMemoryMaps()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -401,7 +401,7 @@ namespace x64dbgMCP {
         static auto GetMemoryBase(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -409,7 +409,7 @@ namespace x64dbgMCP {
         static auto GetMemorySize(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -418,7 +418,7 @@ namespace x64dbgMCP {
             [Description("Virtual address to read from")] String^ addr,
             [Description("Number of bytes to read")] int size)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -427,14 +427,14 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Get the list of all threads in the debugged process.")]
         static auto GetThreadList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Get the thread ID of the first (main) thread.")]
         static auto GetFirstThreadId()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -445,7 +445,7 @@ namespace x64dbgMCP {
             [Description("Virtual address to start disassembly")] String^ addr,
             [Description("Number of instructions to disassemble (max 20)")] int count)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -455,7 +455,7 @@ namespace x64dbgMCP {
         static auto FindPattern(
             [Description("Byte pattern with ?? as wildcard (e.g. \"48 89 5C 24 ?? 57\")")] String^ pattern)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -465,7 +465,7 @@ namespace x64dbgMCP {
         static auto ParseExpression(
             [Description("Expression string (e.g. \"kernel32:CreateFileW\", \"peb()\", \"mem.base(cip)\")")] String^ expression)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -473,7 +473,7 @@ namespace x64dbgMCP {
         static auto ResolveLabel(
             [Description("Label or API name to resolve (e.g. \"LoadLibraryA\")")] String^ label)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -481,7 +481,7 @@ namespace x64dbgMCP {
         static auto GetStringAt(
             [Description("Virtual address to query")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -494,63 +494,63 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Run/continue the debugged process.")]
         static auto DebugRun()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Pause the debugged process.")]
         static auto DebugPause()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Stop debugging (detach/terminate).")]
         static auto DebugStop()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Restart the debugged process.")]
         static auto DebugRestart()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Step into the next instruction.")]
         static auto StepInto()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Step over the next instruction (skip calls).")]
         static auto StepOver()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Step out of the current function.")]
         static auto StepOut()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Check if the debugger is currently attached/debugging.")]
         static auto IsDebugging()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Check if the debugged process is currently running (not paused).")]
         static auto IsRunning()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -558,7 +558,7 @@ namespace x64dbgMCP {
         static auto RunCommand(
             [Description("x64dbg command string")] String^ command)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -568,7 +568,7 @@ namespace x64dbgMCP {
         static auto GetBreakpointList(
             [Description("Breakpoint type filter (0=all, 1=normal, 2=hardware, 4=memory)")] int bpxtype)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -576,7 +576,7 @@ namespace x64dbgMCP {
         static auto SetBreakpoint(
             [Description("Virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -584,7 +584,7 @@ namespace x64dbgMCP {
         static auto DeleteBreakpoint(
             [Description("Virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -592,7 +592,7 @@ namespace x64dbgMCP {
         static auto DisableBreakpoint(
             [Description("Virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -601,7 +601,7 @@ namespace x64dbgMCP {
             [Description("Virtual address")] String^ addr,
             [Description("Hardware breakpoint type (0=access, 1=write, 2=execute)")] int type)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -609,7 +609,7 @@ namespace x64dbgMCP {
         static auto DeleteHardwareBreakpoint(
             [Description("Virtual address")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -619,7 +619,7 @@ namespace x64dbgMCP {
         static auto GetFlag(
             [Description("Flag index (0=ZF, 1=OF, 2=CF, 3=PF, 4=SF, 5=TF, 6=AF, 7=DF, 8=IF)")] int flag)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -628,7 +628,7 @@ namespace x64dbgMCP {
             [Description("Flag index (0=ZF, 1=OF, 2=CF, 3=PF, 4=SF, 5=TF, 6=AF, 7=DF, 8=IF)")] int flag,
             [Description("Flag value")] bool value)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -636,7 +636,7 @@ namespace x64dbgMCP {
         static auto GetRegister(
             [Description("Register enum index")] int reg)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -645,14 +645,14 @@ namespace x64dbgMCP {
             [Description("Register enum index")] int reg,
             [Description("Value to set")] String^ value)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Get a full dump of all registers.")]
         static auto GetRegisterDump()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -663,7 +663,7 @@ namespace x64dbgMCP {
             [Description("Virtual address to write to")] String^ addr,
             [Description("Base64-encoded bytes to write")] String^ base64Data)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -672,7 +672,7 @@ namespace x64dbgMCP {
             [Description("Desired size in bytes")] int size,
             [Description("Preferred virtual address (0 for any)")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -680,7 +680,7 @@ namespace x64dbgMCP {
         static auto MemoryFree(
             [Description("Virtual address to free")] String^ addr)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -690,7 +690,7 @@ namespace x64dbgMCP {
         static auto GetCallStack(
             [Description("Thread ID")] int threadId)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -701,7 +701,7 @@ namespace x64dbgMCP {
             [Description("Thread ID")] int threadId,
             [Description("New thread name")] String^ name)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -709,7 +709,7 @@ namespace x64dbgMCP {
         static auto SetActiveThread(
             [Description("Thread ID")] int threadId)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -717,7 +717,7 @@ namespace x64dbgMCP {
         static auto SuspendThread(
             [Description("Thread ID")] int threadId)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -725,7 +725,7 @@ namespace x64dbgMCP {
         static auto ResumeThread(
             [Description("Thread ID")] int threadId)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -734,7 +734,7 @@ namespace x64dbgMCP {
             [Description("Thread ID")] int threadId,
             [Description("Exit code")] int exitCode)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -743,7 +743,7 @@ namespace x64dbgMCP {
             [Description("Entry point virtual address")] String^ entry,
             [Description("Argument to pass to the thread")] String^ arg)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -754,7 +754,7 @@ namespace x64dbgMCP {
             [Description("Virtual address to assemble at")] String^ addr,
             [Description("Assembly instruction (e.g. \"nop\", \"mov eax, 1\")")] String^ instruction)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -764,7 +764,7 @@ namespace x64dbgMCP {
         static auto GuiMessage(
             [Description("Message text")] String^ message)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -772,14 +772,14 @@ namespace x64dbgMCP {
         static auto GuiMessageYesNo(
             [Description("Question text")] String^ message)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Refresh all x64dbg GUI views.")]
         static auto GuiRefresh()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -787,7 +787,7 @@ namespace x64dbgMCP {
         static auto GuiFocusView(
             [Description("Window type (0=Disassembly, 1=Dump, 2=Stack, 3=Graph, 4=MemMap, 5=SymMod, 6=Threads)")] int window)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -797,7 +797,7 @@ namespace x64dbgMCP {
             [Description("Start virtual address")] String^ start,
             [Description("End virtual address")] String^ end)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -805,7 +805,7 @@ namespace x64dbgMCP {
         static auto GuiSelectionGet(
             [Description("Window type")] int window)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -815,14 +815,14 @@ namespace x64dbgMCP {
         static auto ScriptLoad(
             [Description("Path to the script file")] String^ filename)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Unload the currently loaded script.")]
         static auto ScriptUnload()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -830,14 +830,14 @@ namespace x64dbgMCP {
         static auto ScriptRun(
             [Description("Line number to start execution from")] int destLine)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
         [McpServerTool, Description("Abort the currently running script.")]
         static auto ScriptAbort()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -845,7 +845,7 @@ namespace x64dbgMCP {
         static auto ScriptCmdExec(
             [Description("Script command to execute")] String^ command)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -855,7 +855,7 @@ namespace x64dbgMCP {
         static auto LogPuts(
             [Description("Text to log")] String^ text)
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
@@ -864,7 +864,7 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Get the list of all watch expressions.")]
         static auto GetWatchList()
         {
-            // TODO
+            // TODO: 
             throw gcnew NotImplementedException();
         }
 
