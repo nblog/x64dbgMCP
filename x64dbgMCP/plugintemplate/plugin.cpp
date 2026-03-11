@@ -34,7 +34,7 @@ static bool cbMcpStart(int argc, char** argv)
         if (port <= 1024 || port > 49151) port = 3001;
     }
 
-    if (x64dbgMCP::McpServerHost::Start(port, nullptr)) {
+    if (x64dbgMCP::McpServerHost::Start(port)) {
         dprintf("MCP server started on localhost:%d\n", port);
         return true;
     }

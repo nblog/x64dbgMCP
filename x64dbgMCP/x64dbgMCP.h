@@ -20,6 +20,7 @@ namespace x64dbgMCP {
         static String^ _httpUrl;
         static Task^ _serverTask;
         static bool _running = false;
+        static bool _enableDebugging = false;
 
         static void Log(String^ msg)
         {
@@ -31,9 +32,20 @@ namespace x64dbgMCP {
     public:
         static property bool IsRunning { bool get() { return _running; } }
 
+        static bool Start(int port)
+        {
+            return Start(port, nullptr, false);
+		}
+
         static bool Start(int port, String^ httpUrl)
         {
+            return Start(port, httpUrl, false);
+        }
+
+        static bool Start(int port, String^ httpUrl, bool enableDebugging)
+        {
             if (_running) return false;
+            _enableDebugging = enableDebugging;
             _httpUrl = httpUrl ? httpUrl : String::Format("http://localhost:{0}", port);
             _serverTask = Task::Run(gcnew Action(&RunServerEntry));
             _running = true;
@@ -71,8 +83,12 @@ namespace x64dbgMCP {
                     builder->Services,
                     gcnew Action<McpServerOptions^>(&ConfigureMcpOptions));
 
-                // Auto-discover tools from [McpServerToolType] classes
-                McpServerBuilderExtensions::WithToolsFromAssembly(mcpBuilder);
+                // Register analysis tools (always loaded)
+                McpServerBuilderExtensions::WithTools<McpAnalysisTools^>(mcpBuilder);
+
+                // Register debugging tools (on-demand)
+                if (_enableDebugging)
+                    McpServerBuilderExtensions::WithTools<McpDebuggingTools^>(mcpBuilder);
 
                 // Add HTTP transport (enables Streamable HTTP + legacy SSE)
                 HttpMcpServerBuilderExtensions::WithHttpTransport(mcpBuilder, nullptr);

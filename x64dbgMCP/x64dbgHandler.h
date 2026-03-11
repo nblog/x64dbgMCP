@@ -43,11 +43,9 @@ namespace x64dbgMCP {
     };
 
     [McpServerToolType]
-    public ref class McpTools
+    public ref class McpAnalysisTools
     {
     public:
-
-#pragma region Analysis Tools
 
         // ── Project ──
         [McpServerTool(ReadOnly = true), Description("Get the project information about the currently loaded project.")]
@@ -485,9 +483,12 @@ namespace x64dbgMCP {
             throw gcnew NotImplementedException();
         }
 
-#pragma endregion
+    };
 
-#pragma region Debugging Tools
+    [McpServerToolType]
+    public ref class McpDebuggingTools
+    {
+    public:
 
         // ── Debug Control ──
 
@@ -867,8 +868,6 @@ namespace x64dbgMCP {
             // TODO: 
             throw gcnew NotImplementedException();
         }
-
-#pragma endregion
 
     };
 }
