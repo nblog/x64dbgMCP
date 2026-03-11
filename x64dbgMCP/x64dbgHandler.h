@@ -492,6 +492,20 @@ namespace x64dbgMCP {
 
         // ── Debug Control ──
 
+        [McpServerTool, Description("Check if the debugger is currently attached/debugging.")]
+            static auto IsDebugging()
+        {
+            // TODO: 
+            throw gcnew NotImplementedException();
+        }
+
+        [McpServerTool, Description("Check if the debugged process is currently running (not paused).")]
+        static auto IsRunning()
+        {
+            // TODO: 
+            throw gcnew NotImplementedException();
+        }
+
         [McpServerTool, Description("Run/continue the debugged process.")]
         static auto DebugRun()
         {
@@ -536,20 +550,6 @@ namespace x64dbgMCP {
 
         [McpServerTool, Description("Step out of the current function.")]
         static auto StepOut()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Check if the debugger is currently attached/debugging.")]
-        static auto IsDebugging()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Check if the debugged process is currently running (not paused).")]
-        static auto IsRunning()
         {
             // TODO: 
             throw gcnew NotImplementedException();
