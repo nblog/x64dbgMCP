@@ -346,7 +346,7 @@ namespace x64dbgMCP {
         property String^ address;
         [Description("Whether the breakpoint is enabled")]
         property bool enabled;
-        [Description("Whether this is a single-shot breakpoint")]
+        [Description("Whether this is a single-shot breakpoint (auto-deleted after first hit)")]
         property bool singleshoot;
         [Description("Whether the breakpoint is active")]
         property bool active;
@@ -1856,7 +1856,7 @@ namespace x64dbgMCP {
         }
 
         [McpServerTool, Description(
-            "Step over the next instruction (skip into calls). "
+            "Step over the next instruction (skip over calls). "
             "Waits until the step completes.")]
         static auto StepOver()
         {
