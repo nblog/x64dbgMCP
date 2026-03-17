@@ -246,15 +246,6 @@ namespace x64dbgMCP {
             // TODO: 
             throw gcnew NotImplementedException();
         }
-
-        [McpServerTool, Description("Delete all cross-references to the specified address.")]
-        static auto DeleteAllXrefs(
-            [Description("Target virtual address")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
         [McpServerTool, Description("Get the number of cross-references at the specified address.")]
         static auto GetXrefCountAt(
             [Description("Virtual address to query")] String^ addr)
@@ -266,42 +257,6 @@ namespace x64dbgMCP {
         [McpServerTool, Description("Get the type of cross-reference at the specified address (0=NONE, 1=DATA, 2=JMP, 3=CALL).")]
         static auto GetXrefTypeAt(
             [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Argument ──
-
-        [McpServerTool, Description("Get the list of all argument ranges.")]
-        static auto GetArgumentList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get argument range information at the specified address.")]
-        static auto GetArgumentAt(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Add an argument range at the specified address range.")]
-        static auto AddArgument(
-            [Description("Start virtual address")] String^ start,
-            [Description("End virtual address")] String^ end,
-            [Description("Whether this is a manual/user-defined entry")] bool manual,
-            [Description("Number of instructions")] int instructionCount)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Delete the argument range at the specified address.")]
-        static auto DeleteArgument(
-            [Description("Virtual address")] String^ addr)
         {
             // TODO: 
             throw gcnew NotImplementedException();
@@ -424,13 +379,6 @@ namespace x64dbgMCP {
 
         [McpServerTool, Description("Get the list of all threads in the debugged process.")]
         static auto GetThreadList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the thread ID of the first (main) thread.")]
-        static auto GetFirstThreadId()
         {
             // TODO: 
             throw gcnew NotImplementedException();
@@ -730,15 +678,6 @@ namespace x64dbgMCP {
             throw gcnew NotImplementedException();
         }
 
-        [McpServerTool, Description("Terminate a thread with the specified exit code.")]
-        static auto KillThread(
-            [Description("Thread ID")] int threadId,
-            [Description("Exit code")] int exitCode)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
         [McpServerTool, Description("Create a new thread at the specified entry point.")]
         static auto CreateThread(
             [Description("Entry point virtual address")] String^ entry,
@@ -761,7 +700,7 @@ namespace x64dbgMCP {
 
         // ── GUI ──
 
-        [McpServerTool, Description("Show a message box in x64dbg.")]
+        //[McpServerTool, Description("Show a message box in x64dbg.")]
         static auto GuiMessage(
             [Description("Message text")] String^ message)
         {
@@ -769,7 +708,7 @@ namespace x64dbgMCP {
             throw gcnew NotImplementedException();
         }
 
-        [McpServerTool, Description("Show a Yes/No dialog in x64dbg. Returns true for Yes.")]
+        //[McpServerTool, Description("Show a Yes/No dialog in x64dbg. Returns true for Yes.")]
         static auto GuiMessageYesNo(
             [Description("Question text")] String^ message)
         {
@@ -777,14 +716,14 @@ namespace x64dbgMCP {
             throw gcnew NotImplementedException();
         }
 
-        [McpServerTool, Description("Refresh all x64dbg GUI views.")]
+        //[McpServerTool, Description("Refresh all x64dbg GUI views.")]
         static auto GuiRefresh()
         {
             // TODO: 
             throw gcnew NotImplementedException();
         }
 
-        [McpServerTool, Description("Focus a specific x64dbg window. win: 0=Disassembly, 1=Dump, 2=Stack, 3=Graph, 4=MemMap, 5=SymMod, 6=Threads.")]
+        //[McpServerTool, Description("Focus a specific x64dbg window. win: 0=Disassembly, 1=Dump, 2=Stack, 3=Graph, 4=MemMap, 5=SymMod, 6=Threads.")]
         static auto GuiFocusView(
             [Description("Window type (0=Disassembly, 1=Dump, 2=Stack, 3=Graph, 4=MemMap, 5=SymMod, 6=Threads)")] int window)
         {
@@ -792,7 +731,7 @@ namespace x64dbgMCP {
             throw gcnew NotImplementedException();
         }
 
-        [McpServerTool, Description("Set the selection range in a x64dbg window.")]
+        //[McpServerTool, Description("Set the selection range in a x64dbg window.")]
         static auto GuiSelectionSet(
             [Description("Window type")] int window,
             [Description("Start virtual address")] String^ start,
@@ -802,7 +741,7 @@ namespace x64dbgMCP {
             throw gcnew NotImplementedException();
         }
 
-        [McpServerTool, Description("Get the current selection range in a x64dbg window. Returns [start, end].")]
+        //[McpServerTool, Description("Get the current selection range in a x64dbg window. Returns [start, end].")]
         static auto GuiSelectionGet(
             [Description("Window type")] int window)
         {
@@ -811,7 +750,7 @@ namespace x64dbgMCP {
         }
 
         // ── Script ──
-
+        /*
         [McpServerTool, Description("Load a script file into the x64dbg script engine.")]
         static auto ScriptLoad(
             [Description("Path to the script file")] String^ filename)
@@ -849,7 +788,7 @@ namespace x64dbgMCP {
             // TODO: 
             throw gcnew NotImplementedException();
         }
-
+        */
         // ── Logging ──
 
         [McpServerTool, Description("Write a line to the x64dbg log window.")]
@@ -862,7 +801,7 @@ namespace x64dbgMCP {
 
         // ── Watch ──
 
-        [McpServerTool, Description("Get the list of all watch expressions.")]
+        //[McpServerTool, Description("Get the list of all watch expressions.")]
         static auto GetWatchList()
         {
             // TODO: 
