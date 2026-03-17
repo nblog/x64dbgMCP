@@ -407,6 +407,16 @@ namespace x64dbgMCP {
 
         // ── Misc ──
 
+		[McpServerTool, Description("Initializes the debugger. This command will load the executable.")]
+        static auto InitDebug(
+			[Description("Path to the executable file to debug")] String^ exePath,
+			[Description("Commandline to create the process with")] String^ cmdLine,
+            [Description("Current folder"), DefaultValue("")] String ^ curFolder)
+        {
+            // TODO: 
+            throw gcnew NotImplementedException();
+        }
+
         [McpServerTool, Description("Evaluate a x64dbg expression string and return the result as an address.")]
         static auto ParseExpression(
             [Description("Expression string (e.g. \"kernel32:CreateFileW\", \"peb()\", \"mem.base(cip)\")")] String^ expression)
