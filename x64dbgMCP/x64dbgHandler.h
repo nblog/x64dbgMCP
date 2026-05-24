@@ -1,822 +1,804 @@
 #pragma once
 
 #include "plugintemplate/pluginmain.h"
+#include "plugintemplate/pluginsdk/lz4/lz4.h"
+#include <msclr/marshal.h>
+#include <msclr/marshal_cppstd.h>
+#include <vector>
 
 namespace x64dbgMCP {
 
     using namespace System;
     using namespace System::Collections::Generic;
     using namespace System::ComponentModel;
+    using namespace System::Runtime::InteropServices;
+    using namespace System::Text;
+    using namespace System::Text::Json;
+    using namespace System::Text::Json::Serialization;
+    using namespace ModelContextProtocol::Protocol;
     using namespace ModelContextProtocol::Server;
 
-    public ref class ProjectInfoResult
+    // ────────────────────────────────────────────────────────────────
+    //  Result envelope (conventions.md §4, ADR-004)
+    // ────────────────────────────────────────────────────────────────
+
+    public ref class ErrorInfo
     {
     public:
-        [Description("Plugin Version")]
-        property String^ Version
+        [JsonPropertyName("code")]
+        property String^ Code;
+
+        [JsonPropertyName("message")]
+        property String^ Message;
+
+        [JsonPropertyName("details")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Object^ Details;
+    };
+
+    public ref class LinkRef
+    {
+    public:
+        [JsonPropertyName("uri")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Uri;
+
+        [JsonPropertyName("tool")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Tool;
+
+        [JsonPropertyName("args")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, Object^>^ Args;
+    };
+
+    public ref class PageInfo
+    {
+    public:
+        [JsonPropertyName("offset")]  property int Offset;
+        [JsonPropertyName("limit")]   property int Limit;
+        [JsonPropertyName("total")]   property int Total;
+        [JsonPropertyName("hasMore")] property bool HasMore;
+    };
+
+    public ref class McpResult
+    {
+    public:
+        [JsonPropertyName("success")]
+        property bool Success;
+
+        [JsonPropertyName("error")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property ErrorInfo^ Error;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Helpers (conventions.md §2, §3, §5; ADR-002)
+    // ────────────────────────────────────────────────────────────────
+
+    ref class Helpers abstract sealed
+    {
+    public:
+        static String^ PluginVersion()
         {
-            String^ get()
-            {
-                return (gcnew System::Version(
-                    (PLUGIN_VERSION >> 16) & 0xFF,
-                    (PLUGIN_VERSION >> 8) & 0xFF,
-                    PLUGIN_VERSION & 0xFF))->ToString();
-            }
+            return (gcnew Version(
+                (PLUGIN_VERSION >> 16) & 0xFF,
+                (PLUGIN_VERSION >> 8) & 0xFF,
+                PLUGIN_VERSION & 0xFF))->ToString();
         }
-		[Description("Target Architecture")]
-        property String^ Platform {
-			String^ get()
-			{
+
+        static String^ Platform()
+        {
 #ifdef _WIN64
-				return BridgeIsARM64Emulated() ? "arm64" : "x64";
+            return BridgeIsARM64Emulated() ? "arm64" : "x64";
 #else
-				return "x86";
+            return "x86";
 #endif
-			}
         }
-		[Description("x64dbg Directory")]
-        property String^ X64dbg_dir {
-            String^ get() {
-                return gcnew String(BridgeUserDirectory());
+
+        static String^ X64dbgDirectory()
+        {
+            const wchar_t* p = BridgeUserDirectory();
+            return p ? gcnew String(p) : String::Empty;
+        }
+
+        static String^ FormatAddress(duint addr)
+        {
+            return "0x" + addr.ToString("X");
+        }
+
+        static String^ FromCStr(const char* s)
+        {
+            return s ? gcnew String(s) : nullptr;
+        }
+
+        static bool ResolveExpression(String^ expr, [Out] duint% result)
+        {
+            result = 0;
+            if (String::IsNullOrEmpty(expr)) return false;
+
+            std::string s = msclr::interop::marshal_as<std::string>(expr);
+            duint v = 0;
+            if (!Script::Misc::ParseExpression(s.c_str(), &v)) return false;
+            result = v;
+            return true;
+        }
+
+        static ErrorInfo^ MakeError(String^ code, String^ message)
+        {
+            auto e = gcnew ErrorInfo();
+            e->Code = code;
+            e->Message = message;
+            return e;
+        }
+
+        static LinkRef^ UriLink(String^ uri)
+        {
+            auto l = gcnew LinkRef();
+            l->Uri = uri;
+            return l;
+        }
+
+        static LinkRef^ ToolLink(String^ tool, Dictionary<String^, Object^>^ args)
+        {
+            auto l = gcnew LinkRef();
+            l->Tool = tool;
+            l->Args = args;
+            return l;
+        }
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Resource payloads (tools-spec.md §2)
+    // ────────────────────────────────────────────────────────────────
+
+    public ref class SessionInfo
+    {
+    public:
+        [JsonPropertyName("pluginVersion")]   property String^ PluginVersion;
+        [JsonPropertyName("platform")]        property String^ Platform;
+        [JsonPropertyName("x64dbgDirectory")] property String^ X64dbgDirectory;
+        [JsonPropertyName("isDebugging")]     property bool IsDebugging;
+        [JsonPropertyName("isRunning")]       property bool IsRunning;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
+    public ref class ModuleEntry
+    {
+    public:
+        [JsonPropertyName("name")]         property String^ Name;
+        [JsonPropertyName("path")]         property String^ Path;
+        [JsonPropertyName("base")]         property String^ Base;
+        [JsonPropertyName("size")]         property String^ Size;
+        [JsonPropertyName("entry")]        property String^ Entry;
+        [JsonPropertyName("isMainModule")] property bool IsMainModule;
+    };
+
+    public ref class ModulesPayload
+    {
+    public:
+        [JsonPropertyName("data")] property List<ModuleEntry^>^ Data;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Tool result types (tools-spec.md §3, §5)
+    // ────────────────────────────────────────────────────────────────
+
+    public ref class DisassembleEntry
+    {
+    public:
+        [JsonPropertyName("address")]
+        property String^ Address;
+
+        [JsonPropertyName("mnemonic")]
+        property String^ Mnemonic;
+
+        [JsonPropertyName("operands")]
+        property String^ Operands;
+
+        [JsonPropertyName("bytes")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Bytes;
+
+        [JsonPropertyName("size")]
+        property int Size;
+
+        [JsonPropertyName("comment")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Comment;
+    };
+
+    public ref class DisassembleResult : McpResult
+    {
+    public:
+        [JsonPropertyName("data")]
+        property List<DisassembleEntry^>^ Data;
+    };
+
+    public ref class MemoryReadResult : McpResult
+    {
+    public:
+        [JsonPropertyName("address")]
+        property String^ Address;
+
+        [JsonPropertyName("size")]
+        property int Size;
+
+        [JsonPropertyName("encoding")]
+        property String^ Encoding;
+
+        [JsonPropertyName("base64")]
+        property String^ Base64;
+
+        [JsonPropertyName("compressedSize")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingDefault)]
+        property int CompressedSize;
+    };
+
+    public ref class DebugControlResult : McpResult
+    {
+    public:
+        [JsonPropertyName("action")]
+        property String^ Action;
+
+        [JsonPropertyName("isDebugging")]
+        property bool IsDebugging;
+
+        [JsonPropertyName("isRunning")]
+        property bool IsRunning;
+
+        [JsonPropertyName("commandOutput")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ CommandOutput;
+    };
+
+    public ref class RegistersOpResult : McpResult
+    {
+    public:
+        [JsonPropertyName("name")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Name;
+
+        [JsonPropertyName("value")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Value;
+
+        [JsonPropertyName("previous")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Previous;
+    };
+
+    public ref class RegisterDumpResult : McpResult
+    {
+    public:
+        [JsonPropertyName("threadId")]
+        property int ThreadId;
+
+        [JsonPropertyName("registers")]
+        property Dictionary<String^, String^>^ Registers;
+
+        [JsonPropertyName("flags")]
+        property Dictionary<String^, bool>^ Flags;
+    };
+
+    // ────────────────────────────────────────────────────────────────
+    //  Resources — McpResources (ADR-003 Layer A)
+    // ────────────────────────────────────────────────────────────────
+
+    [McpServerResourceType]
+    public ref class McpResources abstract sealed
+    {
+    public:
+        [McpServerResource(UriTemplate = "x64dbg://session", Name = "session", MimeType = "application/json")]
+        [Description("Snapshot of the current x64dbg/plugin session: plugin version, target platform, debug state, and navigation links.")]
+        static ResourceContents^ Session()
+        {
+            auto info = gcnew SessionInfo();
+            info->PluginVersion = Helpers::PluginVersion();
+            info->Platform = Helpers::Platform();
+            info->X64dbgDirectory = Helpers::X64dbgDirectory();
+            info->IsDebugging = DbgIsDebugging();
+            info->IsRunning = info->IsDebugging && DbgIsRunning();
+            info->Links = gcnew Dictionary<String^, LinkRef^>();
+            info->Links["self"] = Helpers::UriLink("x64dbg://session");
+            info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
+
+            return MakeJson(info, "x64dbg://session");
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://modules", Name = "modules", MimeType = "application/json")]
+        [Description("List of all loaded modules in the debugged process. Empty when not debugging.")]
+        static ResourceContents^ Modules()
+        {
+            auto payload = gcnew ModulesPayload();
+            payload->Data = gcnew List<ModuleEntry^>();
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+            payload->Links["self"] = Helpers::UriLink("x64dbg://modules");
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+
+            if (DbgIsDebugging())
+            {
+                BridgeList<Script::Module::ModuleInfo> list;
+                if (Script::Module::GetList(&list))
+                {
+                    duint mainBase = Script::Module::GetMainModuleBase();
+                    for (int i = 0; i < list.Count(); i++)
+                    {
+                        const auto& m = list[i];
+                        auto e = gcnew ModuleEntry();
+                        e->Name = Helpers::FromCStr(m.name);
+                        e->Path = Helpers::FromCStr(m.path);
+                        e->Base = Helpers::FormatAddress(m.base);
+                        e->Size = Helpers::FormatAddress(m.size);
+                        e->Entry = Helpers::FormatAddress(m.entry);
+                        e->IsMainModule = (m.base == mainBase);
+                        payload->Data->Add(e);
+                    }
+                }
             }
+
+            return MakeJson(payload, "x64dbg://modules");
+        }
+
+    private:
+        generic <typename T>
+        static ResourceContents^ MakeJson(T value, String^ uri)
+        {
+            auto txt = gcnew TextResourceContents();
+            txt->Text = JsonSerializer::Serialize<T>(value);
+            txt->MimeType = "application/json";
+            txt->Uri = uri;
+            return txt;
         }
     };
 
+    // ────────────────────────────────────────────────────────────────
+    //  Analysis tools (rich-param) — McpAnalysisTools (ADR-003 Layer B)
+    // ────────────────────────────────────────────────────────────────
+
     [McpServerToolType]
-    public ref class McpAnalysisTools
+    public ref class McpAnalysisTools abstract sealed
     {
     public:
-
-        // ── Project ──
-        [McpServerTool(ReadOnly = true), Description("Get the project information about the currently loaded project.")]
-        static auto GetProjectInfo()
+        [McpServerTool(ReadOnly = true)]
+        [Description("Disassemble up to N instructions starting at the given address or x64dbg expression.")]
+        static DisassembleResult^ Disassemble(
+            [Description("Address or x64dbg expression (e.g. \"rax\", \"kernel32:CreateFileW\", \"cip+0x10\")")]
+            String^ addr,
+            [Description("Number of instructions to disassemble (1-200)")]
+            int count,
+            [Description("Include raw byte sequence for each instruction (default false)")]
+            [DefaultValue(false)]
+            bool withBytes)
         {
-            return gcnew ProjectInfoResult();
+            auto r = gcnew DisassembleResult();
+            r->Data = gcnew List<DisassembleEntry^>();
+
+            if (count < 1 || count > 200)
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("invalid_argument", "count must be in [1, 200]");
+                return r;
+            }
+            if (!DbgIsDebugging())
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("not_attached", "no active debug session");
+                return r;
+            }
+
+            duint cur = 0;
+            if (!Helpers::ResolveExpression(addr, cur))
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("not_found", "could not resolve address: " + addr);
+                return r;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                BASIC_INSTRUCTION_INFO bi;
+                memset(&bi, 0, sizeof(bi));
+                DbgDisasmFastAt(cur, &bi);
+                int sz = bi.size > 0 ? bi.size : 1;
+
+                auto e = gcnew DisassembleEntry();
+                e->Address = Helpers::FormatAddress(cur);
+                e->Size = sz;
+
+                String^ full = Helpers::FromCStr(bi.instruction);
+                if (full == nullptr) full = String::Empty;
+                int sp = full->IndexOf(' ');
+                if (sp > 0)
+                {
+                    e->Mnemonic = full->Substring(0, sp);
+                    e->Operands = full->Substring(sp + 1)->Trim();
+                }
+                else
+                {
+                    e->Mnemonic = full;
+                    e->Operands = String::Empty;
+                }
+
+                if (withBytes && sz > 0 && sz <= 16)
+                {
+                    array<unsigned char>^ bytes = gcnew array<unsigned char>(sz);
+                    pin_ptr<unsigned char> p = &bytes[0];
+                    if (DbgMemRead(cur, p, sz))
+                    {
+                        auto sb = gcnew StringBuilder(sz * 2);
+                        for (int j = 0; j < sz; j++) sb->AppendFormat("{0:X2}", bytes[j]);
+                        e->Bytes = sb->ToString();
+                    }
+                }
+
+                r->Data->Add(e);
+                cur += (duint)sz;
+            }
+
+            r->Success = true;
+            return r;
         }
 
-        // ── Symbol ──
-
-        [McpServerTool(ReadOnly = true), Description("Get the list of all symbols in the debugged module.")]
-        static auto GetSymbolList()
+        [McpServerTool(ReadOnly = true)]
+        [Description(
+            "Read memory from the debugged process. Returns base64-encoded bytes.\n"
+        )]
+        static MemoryReadResult^ MemoryRead(
+            [Description("Address or x64dbg expression (e.g. \"rax\", \"kernel32:CreateFileW\", \"cip+0x10\")")]
+            String^ addr,
+            [Description("Number of bytes to read (1-65536)")]
+            int size,
+            [Description("Compress payload with lz4 before base64 (recommended for size > ~4 KiB)")]
+            [DefaultValue(false)]
+            bool compress)
         {
-            // TODO: 
-            throw gcnew NotImplementedException();
+            auto r = gcnew MemoryReadResult();
+            if (size < 1 || size > 65536)
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("invalid_argument", "size must be in [1, 65536]");
+                return r;
+            }
+            if (!DbgIsDebugging())
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("not_attached", "no active debug session");
+                return r;
+            }
+
+            duint a = 0;
+            if (!Helpers::ResolveExpression(addr, a))
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("not_found", "could not resolve address: " + addr);
+                return r;
+            }
+
+            array<unsigned char>^ buf = gcnew array<unsigned char>(size);
+            {
+                pin_ptr<unsigned char> p = &buf[0];
+                if (!DbgMemRead(a, p, (duint)size))
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError("x64dbg_failed", "DbgMemRead failed");
+                    return r;
+                }
+            }
+
+            r->Address = Helpers::FormatAddress(a);
+            r->Size = size;
+
+            if (compress)
+            {
+                int bound = LZ4_compressBound(size);
+                if (bound <= 0)
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError("internal", "LZ4_compressBound returned non-positive");
+                    return r;
+                }
+                std::vector<char> out((size_t)bound);
+                int compressed;
+                {
+                    pin_ptr<unsigned char> p = &buf[0];
+                    compressed = LZ4_compress(reinterpret_cast<const char*>(p), out.data(), size);
+                }
+                if (compressed <= 0)
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError("internal", "LZ4_compress failed");
+                    return r;
+                }
+                array<unsigned char>^ cbuf = gcnew array<unsigned char>(compressed);
+                Marshal::Copy(IntPtr((void*)out.data()), cbuf, 0, compressed);
+
+                r->Encoding = "lz4";
+                r->Base64 = Convert::ToBase64String(cbuf);
+                r->CompressedSize = compressed;
+            }
+            else
+            {
+                r->Encoding = "raw";
+                r->Base64 = Convert::ToBase64String(buf);
+            }
+
+            r->Success = true;
+            return r;
         }
-
-        [McpServerTool, Description("Get symbol information at the specified address.")]
-        static auto GetSymbolAt(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Function ──
-
-        [McpServerTool, Description("Get the list of all recognized functions.")]
-        static auto GetFunctionList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get function information at the specified address.")]
-        static auto GetFunctionAt(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Add a function entry at the specified address range.")]
-        static auto AddFunction(
-            [Description("Start virtual address")] String^ start,
-            [Description("End virtual address")] String^ end,
-            [Description("Whether this is a manual/user-defined entry")] bool manual,
-            [Description("Number of instructions in the function")] int instructionCount)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Delete the function entry at the specified address.")]
-        static auto DeleteFunction(
-            [Description("Virtual address of the function to delete")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Label ──
-
-        [McpServerTool, Description("Get the list of all labels.")]
-        static auto GetLabelList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get label information at the specified address.")]
-        static auto GetLabelAt(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Set a label at the specified address.")]
-        static auto SetLabel(
-            [Description("Virtual address")] String^ addr,
-            [Description("Label text")] String^ text,
-            [Description("Whether this is a manual/user-defined label")] bool manual,
-            [Description("Whether this label is temporary")] bool temporary)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Delete the label at the specified address.")]
-        static auto DeleteLabel(
-            [Description("Virtual address")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Check if the label at the specified address is temporary.")]
-        static auto IsLabelTemporary(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Resolve a label name to its virtual address.")]
-        static auto LabelFromString(
-            [Description("Label name to resolve")] String^ label)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Comment ──
-
-        [McpServerTool, Description("Get the list of all comments.")]
-        static auto GetCommentList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the comment at the specified address.")]
-        static auto GetCommentAt(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Set a comment at the specified address.")]
-        static auto SetComment(
-            [Description("Virtual address")] String^ addr,
-            [Description("Comment text")] String^ text,
-            [Description("Whether this is a manual/user-defined comment")] bool manual)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Delete the comment at the specified address.")]
-        static auto DeleteComment(
-            [Description("Virtual address")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Bookmark ──
-
-        [McpServerTool, Description("Get the list of all bookmarks.")]
-        static auto GetBookmarkList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get bookmark information at the specified address.")]
-        static auto GetBookmarkAt(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Set a bookmark at the specified address.")]
-        static auto SetBookmark(
-            [Description("Virtual address")] String^ addr,
-            [Description("Whether this is a manual/user-defined bookmark")] bool manual)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Delete the bookmark at the specified address.")]
-        static auto DeleteBookmark(
-            [Description("Virtual address")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Xref (Cross Reference) ──
-
-        [McpServerTool, Description("Get all cross-references to the specified address.")]
-        static auto GetXrefs(
-            [Description("Target virtual address")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Add a cross-reference from one address to another.")]
-        static auto AddXref(
-            [Description("Target virtual address")] String^ addr,
-            [Description("Source virtual address of the reference")] String^ from)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-        [McpServerTool, Description("Get the number of cross-references at the specified address.")]
-        static auto GetXrefCountAt(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the type of cross-reference at the specified address (0=NONE, 1=DATA, 2=JMP, 3=CALL).")]
-        static auto GetXrefTypeAt(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Module ──
-
-        [McpServerTool, Description("Get the list of all loaded modules.")]
-        static auto GetModuleList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get information about the main (debugged) module.")]
-        static auto GetMainModuleInfo()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get module information by virtual address.")]
-        static auto GetModuleByAddr(
-            [Description("Virtual address within the module")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get module information by module name.")]
-        static auto GetModuleByName(
-            [Description("Module name (e.g. kernel32.dll)")] String^ name)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the section list of the main module.")]
-        static auto GetMainModuleSectionList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the section list of a module by virtual address.")]
-        static auto GetSectionListByAddr(
-            [Description("Virtual address within the module")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the section list of a module by name.")]
-        static auto GetSectionListByName(
-            [Description("Module name")] String^ name)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the export table of a module by virtual address.")]
-        static auto GetExports(
-            [Description("Virtual address within the module")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the import table of a module by virtual address.")]
-        static auto GetImports(
-            [Description("Virtual address within the module")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Memory (read-only) ──
-
-        [McpServerTool, Description("Check if the specified address is a valid pointer in the debugged process.")]
-        static auto IsValidPtr(
-            [Description("Virtual address to check")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the memory map of the debugged process.")]
-        static auto GetMemoryMaps()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the base address of the memory region containing the specified address.")]
-        static auto GetMemoryBase(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the size of the memory region containing the specified address.")]
-        static auto GetMemorySize(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Read memory from the debugged process. Returns base64-encoded bytes.")]
-        static auto MemoryRead(
-            [Description("Virtual address to read from")] String^ addr,
-            [Description("Number of bytes to read")] int size)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Thread (query only) ──
-
-        [McpServerTool, Description("Get the list of all threads in the debugged process.")]
-        static auto GetThreadList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Disassemble ──
-
-        [McpServerTool, Description("Disassemble instructions starting at the specified address. Returns up to 'count' instructions (max 20).")]
-        static auto Disassemble(
-            [Description("Virtual address to start disassembly")] String^ addr,
-            [Description("Number of instructions to disassemble (max 20)")] int count)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Pattern ──
-
-        [McpServerTool, Description("Search for a byte pattern in the debugged module. Pattern format: \"AA BB ?? CC\".")]
-        static auto FindPattern(
-            [Description("Byte pattern with ?? as wildcard (e.g. \"48 89 5C 24 ?? 57\")")] String^ pattern)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Misc ──
-
-		[McpServerTool, Description("Initializes the debugger. This command will load the executable.")]
-        static auto InitDebug(
-			[Description("Path to the executable file to debug")] String^ exePath,
-			[Description("Commandline to create the process with")] String^ cmdLine,
-            [Description("Current folder"), DefaultValue("")] String ^ curFolder)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Evaluate a x64dbg expression string and return the result as an address.")]
-        static auto ParseExpression(
-            [Description("Expression string (e.g. \"kernel32:CreateFileW\", \"peb()\", \"mem.base(cip)\")")] String^ expression)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Resolve a label name to its virtual address.")]
-        static auto ResolveLabel(
-            [Description("Label or API name to resolve (e.g. \"LoadLibraryA\")")] String^ label)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the string (if any) at the specified address in the debugged process.")]
-        static auto GetStringAt(
-            [Description("Virtual address to query")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
     };
 
+    // ────────────────────────────────────────────────────────────────
+    //  Debug-mode tools (mega) — McpDebuggingTools (ADR-003 Layer C)
+    // ────────────────────────────────────────────────────────────────
+
     [McpServerToolType]
-    public ref class McpDebuggingTools
+    public ref class McpDebuggingTools abstract sealed
     {
     public:
-
-        // ── Debug Control ──
-
-        [McpServerTool, Description("Check if the debugger is currently attached/debugging.")]
-            static auto IsDebugging()
+        [McpServerTool]
+        [Description(
+            "Debug control. Drives the x64dbg debug session.\n"
+            "Actions:\n"
+            "  run         : continue execution (returns immediately, does not wait for next pause)\n"
+            "  pause       : break into the debugger\n"
+            "  stop        : detach/terminate the debuggee\n"
+            "  step_into   : single-step into\n"
+            "  step_over   : single-step over calls\n"
+            "  step_out    : run until current function returns\n"
+            "  init        : { exePath, cmdLine?, curFolder? } -- load and start a new debuggee\n"
+            "  run_command : { command, wait? } -- raw x64dbg command (https://help.x64dbg.com/en/latest/commands/index.html); wait=true uses DbgCmdExecDirect\n"
+        )]
+        static Object^ DebugControl(
+            [Description("Action: \"run\"|\"pause\"|\"stop\"|\"step_into\"|\"step_over\"|\"step_out\"|\"init\"|\"run_command\"")]
+            String^ action,
+            [Description("Path to executable (required for action=init)")]
+            [DefaultValue("")]
+            String^ exePath,
+            [Description("Command line to pass to the debuggee (action=init only)")]
+            [DefaultValue("")]
+            String^ cmdLine,
+            [Description("Current folder for the debuggee (action=init only)")]
+            [DefaultValue("")]
+            String^ curFolder,
+            [Description("Raw x64dbg command (required for action=run_command)")]
+            [DefaultValue("")]
+            String^ command,
+            [Description("If true and action=run_command, wait for completion via DbgCmdExecDirect")]
+            [DefaultValue(false)]
+            bool wait)
         {
-            // TODO: 
-            throw gcnew NotImplementedException();
+            auto r = gcnew DebugControlResult();
+            r->Action = action;
+
+            String^ cmd = nullptr;
+            bool needsAttach = true;
+            bool useDirect = false;
+
+            if (action == "run")             cmd = "run";
+            else if (action == "pause")      cmd = "pause";
+            else if (action == "stop")       cmd = "stop";
+            else if (action == "step_into")  cmd = "StepInto";
+            else if (action == "step_over")  cmd = "StepOver";
+            else if (action == "step_out")   cmd = "StepOut";
+            else if (action == "init")
+            {
+                if (String::IsNullOrEmpty(exePath))
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError("invalid_argument", "exePath is required for action=init");
+                    return r;
+                }
+                cmd = BuildInitCommand(exePath, cmdLine, curFolder);
+                needsAttach = false;
+            }
+            else if (action == "run_command")
+            {
+                if (String::IsNullOrEmpty(command))
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError("invalid_argument", "command is required for action=run_command");
+                    return r;
+                }
+                cmd = command;
+                needsAttach = false;
+                useDirect = wait;
+            }
+            else
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError(
+                    "invalid_argument",
+                    "unknown action: " + (action ? action : "<null>"));
+                return r;
+            }
+
+            if (needsAttach && !DbgIsDebugging())
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("not_attached", "no active debug session");
+                return r;
+            }
+
+            std::string c = msclr::interop::marshal_as<std::string>(cmd);
+            bool ok = useDirect ? DbgCmdExecDirect(c.c_str()) : DbgCmdExec(c.c_str());
+
+            if (!ok)
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("x64dbg_failed", "command failed: " + cmd);
+                return r;
+            }
+
+            r->Success = true;
+            r->IsDebugging = DbgIsDebugging();
+            r->IsRunning = r->IsDebugging && DbgIsRunning();
+            return r;
         }
 
-        [McpServerTool, Description("Check if the debugged process is currently running (not paused).")]
-        static auto IsRunning()
+        [McpServerTool]
+        [Description(
+            "Registers control. Actions:\n"
+            "  get  : { name } -> { name, value }       — name is any x64dbg-known register/flag (rax, eip, zf, r8d, _zf...).\n"
+            "  set  : { name, value } -> { name, value, previous } — value accepts any x64dbg expression.\n"
+            "  dump : { } -> { registers, flags }        — all GPRs (arch-agnostic) + flags."
+        )]
+        static Object^ Registers(
+            [Description("Action: \"get\" | \"set\" | \"dump\"")]
+            String^ action,
+            [Description("Register/flag name (required for get/set; e.g. \"rax\", \"zf\")")]
+            [DefaultValue("")]
+            String^ name,
+            [Description("Value or x64dbg expression (required for set; e.g. \"0x1000\", \"rax+8\")")]
+            [DefaultValue("")]
+            String^ value)
         {
-            // TODO: 
-            throw gcnew NotImplementedException();
+            if (!DbgIsDebugging())
+            {
+                auto r = gcnew RegistersOpResult();
+                r->Success = false;
+                r->Error = Helpers::MakeError("not_attached", "no active debug session");
+                return r;
+            }
+
+            if (action == "dump") return DumpAction();
+            if (action == "get")  return GetAction(name);
+            if (action == "set")  return SetAction(name, value);
+
+            auto r = gcnew RegistersOpResult();
+            r->Success = false;
+            r->Error = Helpers::MakeError(
+                "invalid_argument",
+                "unknown action: " + (action ? action : "<null>") + "; expected get|set|dump");
+            return r;
         }
 
-        [McpServerTool, Description("Run/continue the debugged process.")]
-        static auto DebugRun()
+    private:
+        static String^ BuildInitCommand(String^ exePath, String^ cmdLine, String^ curFolder)
         {
-            // TODO: 
-            throw gcnew NotImplementedException();
+            auto sb = gcnew StringBuilder("init ");
+            AppendQuoted(sb, exePath);
+            bool hasCmd = !String::IsNullOrEmpty(cmdLine);
+            bool hasCwd = !String::IsNullOrEmpty(curFolder);
+            if (hasCmd || hasCwd)
+            {
+                sb->Append(",");
+                AppendQuoted(sb, hasCmd ? cmdLine : "");
+            }
+            if (hasCwd)
+            {
+                sb->Append(",");
+                AppendQuoted(sb, curFolder);
+            }
+            return sb->ToString();
         }
 
-        [McpServerTool, Description("Pause the debugged process.")]
-        static auto DebugPause()
+        static void AppendQuoted(StringBuilder^ sb, String^ value)
         {
-            // TODO: 
-            throw gcnew NotImplementedException();
+            sb->Append("\"")->Append(value->Replace("\"", "\\\""))->Append("\"");
         }
 
-        [McpServerTool, Description("Stop debugging (detach/terminate).")]
-        static auto DebugStop()
+        static RegistersOpResult^ GetAction(String^ name)
         {
-            // TODO: 
-            throw gcnew NotImplementedException();
+            auto r = gcnew RegistersOpResult();
+            if (String::IsNullOrEmpty(name))
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("invalid_argument", "name is required for action=get");
+                return r;
+            }
+            duint v = 0;
+            if (!Helpers::ResolveExpression(name, v))
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("not_found", "could not resolve register/flag: " + name);
+                return r;
+            }
+            r->Success = true;
+            r->Name = name;
+            r->Value = Helpers::FormatAddress(v);
+            return r;
         }
 
-        [McpServerTool, Description("Restart the debugged process.")]
-        static auto DebugRestart()
+        static RegistersOpResult^ SetAction(String^ name, String^ value)
         {
-            // TODO: 
-            throw gcnew NotImplementedException();
+            auto r = gcnew RegistersOpResult();
+            if (String::IsNullOrEmpty(name) || String::IsNullOrEmpty(value))
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("invalid_argument", "name and value are required for action=set");
+                return r;
+            }
+
+            duint prev = 0;
+            bool prevOk = Helpers::ResolveExpression(name, prev);
+
+            duint v = 0;
+            if (!Helpers::ResolveExpression(value, v))
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("invalid_argument", "could not parse value: " + value);
+                return r;
+            }
+
+            std::string n = msclr::interop::marshal_as<std::string>(name);
+            if (!DbgValToString(n.c_str(), v))
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("x64dbg_failed", "DbgValToString failed for: " + name);
+                return r;
+            }
+
+            r->Success = true;
+            r->Name = name;
+            r->Value = Helpers::FormatAddress(v);
+            if (prevOk) r->Previous = Helpers::FormatAddress(prev);
+            return r;
         }
 
-        [McpServerTool, Description("Step into the next instruction.")]
-        static auto StepInto()
+        static RegisterDumpResult^ DumpAction()
         {
-            // TODO: 
-            throw gcnew NotImplementedException();
+            auto r = gcnew RegisterDumpResult();
+            r->Success = true;
+            r->ThreadId = -1;
+            r->Registers = gcnew Dictionary<String^, String^>();
+            r->Flags = gcnew Dictionary<String^, bool>();
+
+            array<String^>^ regs = gcnew array<String^>{
+                "cax", "cbx", "ccx", "cdx", "csi", "cdi", "cbp", "csp", "cip",
+#ifdef _WIN64
+                "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+#endif
+            };
+            for each (String ^ rn in regs)
+            {
+                duint v = 0;
+                if (Helpers::ResolveExpression(rn, v))
+                    r->Registers[rn] = Helpers::FormatAddress(v);
+            }
+
+            r->Flags["zf"] = Script::Flag::Get(Script::Flag::ZF);
+            r->Flags["of"] = Script::Flag::Get(Script::Flag::OF);
+            r->Flags["cf"] = Script::Flag::Get(Script::Flag::CF);
+            r->Flags["pf"] = Script::Flag::Get(Script::Flag::PF);
+            r->Flags["sf"] = Script::Flag::Get(Script::Flag::SF);
+            r->Flags["tf"] = Script::Flag::Get(Script::Flag::TF);
+            r->Flags["af"] = Script::Flag::Get(Script::Flag::AF);
+            r->Flags["df"] = Script::Flag::Get(Script::Flag::DF);
+            r->Flags["if"] = Script::Flag::Get(Script::Flag::IF);
+
+            return r;
         }
-
-        [McpServerTool, Description("Step over the next instruction (skip calls).")]
-        static auto StepOver()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Step out of the current function.")]
-        static auto StepOut()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Execute a x64dbg command synchronously.")]
-        static auto RunCommand(
-            [Description("x64dbg command string")] String^ command)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Breakpoint ──
-
-        [McpServerTool, Description("Get the list of breakpoints. bpxtype: 0=all, 1=normal, 2=hardware, 4=memory.")]
-        static auto GetBreakpointList(
-            [Description("Breakpoint type filter (0=all, 1=normal, 2=hardware, 4=memory)")] int bpxtype)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Set a software breakpoint at the specified address.")]
-        static auto SetBreakpoint(
-            [Description("Virtual address")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Delete the software breakpoint at the specified address.")]
-        static auto DeleteBreakpoint(
-            [Description("Virtual address")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Disable the breakpoint at the specified address.")]
-        static auto DisableBreakpoint(
-            [Description("Virtual address")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Set a hardware breakpoint at the specified address. type: 0=access, 1=write, 2=execute.")]
-        static auto SetHardwareBreakpoint(
-            [Description("Virtual address")] String^ addr,
-            [Description("Hardware breakpoint type (0=access, 1=write, 2=execute)")] int type)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Delete the hardware breakpoint at the specified address.")]
-        static auto DeleteHardwareBreakpoint(
-            [Description("Virtual address")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Register ──
-
-        [McpServerTool, Description("Get the value of a CPU flag by index.")]
-        static auto GetFlag(
-            [Description("Flag index (0=ZF, 1=OF, 2=CF, 3=PF, 4=SF, 5=TF, 6=AF, 7=DF, 8=IF)")] int flag)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Set the value of a CPU flag by index.")]
-        static auto SetFlag(
-            [Description("Flag index (0=ZF, 1=OF, 2=CF, 3=PF, 4=SF, 5=TF, 6=AF, 7=DF, 8=IF)")] int flag,
-            [Description("Flag value")] bool value)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get the value of a register by index.")]
-        static auto GetRegister(
-            [Description("Register enum index")] int reg)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Set the value of a register by index.")]
-        static auto SetRegister(
-            [Description("Register enum index")] int reg,
-            [Description("Value to set")] String^ value)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Get a full dump of all registers.")]
-        static auto GetRegisterDump()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Memory ──
-
-        [McpServerTool, Description("Write memory to the debugged process.")]
-        static auto MemoryWrite(
-            [Description("Virtual address to write to")] String^ addr,
-            [Description("Base64-encoded bytes to write")] String^ base64Data)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Allocate memory in the debugged process.")]
-        static auto MemoryAlloc(
-            [Description("Desired size in bytes")] int size,
-            [Description("Preferred virtual address (0 for any)")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Free allocated memory in the debugged process.")]
-        static auto MemoryFree(
-            [Description("Virtual address to free")] String^ addr)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Stack ──
-
-        [McpServerTool, Description("Get the call stack of the specified thread.")]
-        static auto GetCallStack(
-            [Description("Thread ID")] int threadId)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Thread ──
-
-        [McpServerTool, Description("Set the name of a thread.")]
-        static auto SetThreadName(
-            [Description("Thread ID")] int threadId,
-            [Description("New thread name")] String^ name)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Set the active thread for debugging.")]
-        static auto SetActiveThread(
-            [Description("Thread ID")] int threadId)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Suspend a thread.")]
-        static auto SuspendThread(
-            [Description("Thread ID")] int threadId)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Resume a suspended thread.")]
-        static auto ResumeThread(
-            [Description("Thread ID")] int threadId)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Create a new thread at the specified entry point.")]
-        static auto CreateThread(
-            [Description("Entry point virtual address")] String^ entry,
-            [Description("Argument to pass to the thread")] String^ arg)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Assemble ──
-
-        [McpServerTool, Description("Assemble a single instruction at the specified address.")]
-        static auto Assemble(
-            [Description("Virtual address to assemble at")] String^ addr,
-            [Description("Assembly instruction (e.g. \"nop\", \"mov eax, 1\")")] String^ instruction)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── GUI ──
-
-        //[McpServerTool, Description("Show a message box in x64dbg.")]
-        static auto GuiMessage(
-            [Description("Message text")] String^ message)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        //[McpServerTool, Description("Show a Yes/No dialog in x64dbg. Returns true for Yes.")]
-        static auto GuiMessageYesNo(
-            [Description("Question text")] String^ message)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        //[McpServerTool, Description("Refresh all x64dbg GUI views.")]
-        static auto GuiRefresh()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        //[McpServerTool, Description("Focus a specific x64dbg window. win: 0=Disassembly, 1=Dump, 2=Stack, 3=Graph, 4=MemMap, 5=SymMod, 6=Threads.")]
-        static auto GuiFocusView(
-            [Description("Window type (0=Disassembly, 1=Dump, 2=Stack, 3=Graph, 4=MemMap, 5=SymMod, 6=Threads)")] int window)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        //[McpServerTool, Description("Set the selection range in a x64dbg window.")]
-        static auto GuiSelectionSet(
-            [Description("Window type")] int window,
-            [Description("Start virtual address")] String^ start,
-            [Description("End virtual address")] String^ end)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        //[McpServerTool, Description("Get the current selection range in a x64dbg window. Returns [start, end].")]
-        static auto GuiSelectionGet(
-            [Description("Window type")] int window)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Script ──
-        /*
-        [McpServerTool, Description("Load a script file into the x64dbg script engine.")]
-        static auto ScriptLoad(
-            [Description("Path to the script file")] String^ filename)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Unload the currently loaded script.")]
-        static auto ScriptUnload()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Run the loaded script from the specified line.")]
-        static auto ScriptRun(
-            [Description("Line number to start execution from")] int destLine)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Abort the currently running script.")]
-        static auto ScriptAbort()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        [McpServerTool, Description("Execute a command in the x64dbg script engine.")]
-        static auto ScriptCmdExec(
-            [Description("Script command to execute")] String^ command)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-        */
-        // ── Logging ──
-
-        [McpServerTool, Description("Write a line to the x64dbg log window.")]
-        static auto LogPuts(
-            [Description("Text to log")] String^ text)
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
-        // ── Watch ──
-
-        //[McpServerTool, Description("Get the list of all watch expressions.")]
-        static auto GetWatchList()
-        {
-            // TODO: 
-            throw gcnew NotImplementedException();
-        }
-
     };
 }

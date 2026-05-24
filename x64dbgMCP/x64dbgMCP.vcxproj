@@ -153,6 +153,7 @@
     <ClInclude Include="plugintemplate\pluginmain.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="x64dbgMCP.h" />
+    <ClInclude Include="x64dbgHandler.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AssemblyInfo.cpp" />

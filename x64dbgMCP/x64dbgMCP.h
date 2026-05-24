@@ -46,7 +46,7 @@ namespace x64dbgMCP {
         {
             if (_running) return false;
             _enableDebugging = enableDebugging;
-            _httpUrl = httpUrl ? httpUrl : String::Format("http://localhost:{0}", port);
+            _httpUrl = httpUrl ? String::Format("http://{0}:{1}", httpUrl, port) : String::Format("http://localhost:{0}", port);
             _serverTask = Task::Run(gcnew Action(&RunServerEntry));
             _running = true;
             return _running;
@@ -70,7 +70,7 @@ namespace x64dbgMCP {
             auto asmName = Reflection::Assembly::GetExecutingAssembly()->GetName();
             opts->ServerInfo = gcnew Implementation();
             opts->ServerInfo->Name = asmName->Name;
-			opts->ServerInfo->Version = (gcnew ProjectInfoResult())->Version;
+            opts->ServerInfo->Version = Helpers::PluginVersion();
         }
 
         static void RunServerEntry()
@@ -85,6 +85,9 @@ namespace x64dbgMCP {
 
                 // Register analysis tools (always loaded)
                 McpServerBuilderExtensions::WithTools<McpAnalysisTools^>(mcpBuilder);
+
+                // Register MCP resources (read-only, URI-addressable)
+                McpServerBuilderExtensions::WithResources<McpResources^>(mcpBuilder);
 
                 // Register debugging tools (on-demand)
                 if (_enableDebugging)

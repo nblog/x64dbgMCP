@@ -1,14 +1,14 @@
 #ifdef _WIN64
 #pragma comment(lib, "pluginsdk/x64dbg.lib")
 #pragma comment(lib, "pluginsdk/x64bridge.lib")
+#pragma comment(lib, "pluginsdk/lz4/lz4_x64.lib")
 // #pragma comment(lib, "pluginsdk/jansson/jansson_x64.lib")
-// #pragma comment(lib, "pluginsdk/lz4/lz4_x64.lib")
 // #pragma comment(lib, "pluginsdk/XEDParse/XEDParse_x64.lib")
 #else
 #pragma comment(lib, "pluginsdk/x32dbg.lib")
 #pragma comment(lib, "pluginsdk/x32bridge.lib")
+#pragma comment(lib, "pluginsdk/lz4/lz4_x86.lib")
 // #pragma comment(lib, "pluginsdk/jansson/jansson_x86.lib")
-// #pragma comment(lib, "pluginsdk/lz4/lz4_x86.lib")
 // #pragma comment(lib, "pluginsdk/XEDParse/XEDParse_x86.lib")
 #endif
 
@@ -20,7 +20,9 @@
 // References:
 // - https://help.x64dbg.com/en/latest/developers/plugins/index.html
 
-// mcp.start [port] - start MCP server on TCP loopback
+// mcp.start [port=3001],[host=localhost] - start MCP server
+//   port : TCP port to listen on (1025-49150)
+//   host : bind address; pass 0.0.0.0 to expose beyond loopback (default localhost)
 static bool cbMcpStart(int argc, char** argv)
 {
     if (x64dbgMCP::McpServerHost::IsRunning) {
@@ -29,13 +31,18 @@ static bool cbMcpStart(int argc, char** argv)
     }
 
     int port = 3001;
-    if (argc >= 2) {
-        port = atoi(argv[1]);
-        if (port <= 1024 || port > 49151) port = 3001;
+    if (argc >= 2 && argv[1] && argv[1][0]) {
+        int p = atoi(argv[1]);
+        if (p > 1024 && p <= 49151) port = p;
+        else dprintf("invalid port '%s', using default %d\n", argv[1], port);
     }
 
-    if (x64dbgMCP::McpServerHost::Start(port)) {
-        dprintf("MCP server started on localhost:%d\n", port);
+    System::String^ host = nullptr;
+    if (argc >= 3 && argv[2] && argv[2][0])
+        host = gcnew System::String(argv[2]);
+
+    if (x64dbgMCP::McpServerHost::Start(port, host)) {
+        dprintf("MCP server started on %s:%d\n", host ? argv[2] : "localhost", port);
         return true;
     }
 
