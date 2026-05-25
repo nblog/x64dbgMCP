@@ -10,9 +10,8 @@
 
 x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [Model Context Protocol](https://modelcontextprotocol.io) 把动态调试能力以"AI 友好"的形态暴露给 MCP 客户端（Claude Code、Codex 等）。
 
-- **运行形态**: x64dbg 进程内插件 (`.dp32`/`.dp64`)，通过 x64dbg 命令 `x64dbgsvr [port=27041],[host=localhost]` 启动嵌入式 MCP HTTP server
-- **技术栈**: C++/CLI (`CLRSupport=NetCore`) + .NET 10 + ASP.NET Core (`WebApplication.CreateSlimBuilder`) + ModelContextProtocol 1.1.0
-- **传输**: Streamable HTTP (POST `/`) + Legacy SSE (GET `/sse`, POST `/message`)
+- **运行形态**: x64dbg 插件 (`.dp32`/`.dp64`)，通过 x64dbg 命令 `mcp.start [port=3001],[host=localhost]` 启动嵌入式 MCP HTTP server
+- **技术栈**: C++/CLI (`CLRSupport=NetCore`) + ASP.NET Core (`WebApplication.CreateSlimBuilder`) + [ModelContextProtocol](https://github.com/modelcontextprotocol/csharp-sdk)
 - **目标客户端**: 任何遵守 MCP 规范的 Agent；默认 loopback only，安全边界由本机约束
 
 ---
@@ -54,11 +53,11 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 
 ---
 
-## 当前状态（基线 v0）
+## TODO 清单
 
-- [x] Docs 骨架 + 关键 ADR (001–005) 完成
-- [ ] tools-spec.md 工具/资源完整列举与 schema
-- [ ] x64dbgHandler.h 按新设计重构（PoC 1:1 形态 → 三层切分）
-- [ ] 单测/集成测策略（待 ADR）
+- Docs 骨架 + 关键 ADR (001–005)
+- tools-spec.md 工具/资源完整列举与 schema
+- x64dbgHandler.h 按新设计重构（三层切分）
+- 单测/集成测策略（待 ADR）
 
 进度详见 [adr/](adr/) 与各 spec 文件中标记的 `TODO`。

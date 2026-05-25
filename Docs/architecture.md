@@ -15,11 +15,11 @@ This document describes the runtime structure, component layering, and lifecycle
 │  │  ┌─────────────────────────────────────────────────┐  │  │
 │  │  │ Native plugin entry (plugintemplate)            │  │  │
 │  │  │  - DllMain, plugininit, pluginstart             │  │  │
-│  │  │  - Registers x64dbg command "x64dbgsvr"         │  │  │
+│  │  │  - Registers x64dbg command "mcp.start"         │  │  │
 │  │  └────────────────────┬────────────────────────────┘  │  │
 │  │                       │ /clr:netcore                  │  │
 │  │  ┌────────────────────▼────────────────────────────┐  │  │
-│  │  │ Managed CLR side (.NET 10)                      │  │  │
+│  │  │ Managed CLR side (.NET 10+)                     │  │  │
 │  │  │  ┌─────────────────────────────────────────┐    │  │  │
 │  │  │  │ McpServerHost (x64dbgMCP.h)             │    │  │  │
 │  │  │  │  - WebApplication.CreateSlimBuilder     │    │  │  │
@@ -59,12 +59,10 @@ The plugin is a **single in-process DLL**. The native side handles x64dbg's plug
 
 | Phase | Trigger | Effect |
 |---|---|---|
-| Load | x64dbg loads `*.dp32`/`*.dp64` at startup or via `Plugins → Load` | Native `pluginit` registers x64dbg command `x64dbgsvr`. CLR is initialised lazily on first managed call. |
-| Activate | User issues `x64dbgsvr [port=27041],[host=localhost]` in x64dbg command line | Calls `McpServerHost::Start(port, httpUrl, enableDebugging)`. A background `Task` is launched which constructs `WebApplication` and runs `RunAsync` until `StopAsync`. |
+| Load | x64dbg loads `*.dp32`/`*.dp64` at startup or via `Plugins → Load` | Native `pluginit` registers x64dbg command `mcp.start`. CLR is initialised lazily on first managed call. |
+| Activate | User issues `mcp.start [port=3001],[host=localhost]` in x64dbg command line | Calls `McpServerHost::Start(port, ...)`. A background `Task` is launched which constructs `WebApplication` and runs `RunAsync` until `StopAsync`. |
 | Serve | MCP client connects via Streamable HTTP (`POST /`) or Legacy SSE (`GET /sse` + `POST /message`) | Tool/resource methods are dispatched on ASP.NET Core thread-pool threads. Each method calls into x64dbg pluginsdk synchronously. |
 | Deactivate | x64dbg shuts down, plugin unloads, or explicit stop command | `McpServerHost::Stop` calls `app.StopAsync` and waits up to 5 s for the background task. |
-
-The two-phase split (load vs activate) is intentional: loading the plugin should not silently open a network port; the user must opt in via `x64dbgsvr`.
 
 ---
 
@@ -105,15 +103,7 @@ The two-phase split (load vs activate) is intentional: loading the plugin should
 
 ---
 
-## 5. Network Surface
-
-- Default bind: `http://localhost:27041`. Loopback only, no auth.
-- Port is user-controlled via the `x64dbgsvr` command. Host override is supported but **discouraged outside controlled environments** — there is no built-in authentication.
-- Security stance: this plugin is a **local-developer tool**, not a hardened service. It must never be exposed to untrusted networks. If remote access is required, route through SSH port forwarding or a reverse proxy with auth.
-
----
-
-## 6. Tool / Resource Surface (high-level)
+## 5. Tool / Resource Surface (high-level)
 
 The MCP-visible surface is split into three forms based on access pattern. Detailed catalog and per-item schemas live in [tools-spec.md](tools-spec.md); the reasoning is in [adr/003-tool-resource-action-three-layer.md](adr/003-tool-resource-action-three-layer.md).
 
@@ -121,13 +111,13 @@ The MCP-visible surface is split into three forms based on access pattern. Detai
 |---|---|---|
 | **Resource** (`[McpServerResource]`) | Static-while-paused metadata, exploratory navigation | `x64dbg://modules`, `x64dbg://modules/{name}/sections`, `x64dbg://memory/map` |
 | **Rich-param Tool** (`[McpServerTool]`) | Hot-path queries with bulk parameters | `Disassemble(addr, count)`, `MemoryRead(addr, size)`, `FindPattern(pattern, maxResults)` |
-| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Symmetric CRUD families and debug control clusters | `DebugControl{run/pause/step_*}`, `Breakpoints{list/get/set/delete + batch}` |
+| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Symmetric CRUD families and debug control clusters | `DebugControl{init/run/pause/Step*}`, `Breakpoints{list/get/set/delete + batch}` |
 
 The `enableDebugging` flag on `McpServerHost::Start` controls whether `McpDebuggingTools` (state-mutating) is registered. Read-only analysis tools are always registered.
 
 ---
 
-## 7. Build / Output
+## 6. Build / Output
 
 - Project: `x64dbgMCP/x64dbgMCP.vcxproj`, `CLRSupport=NetCore`, `TargetFramework=net10.0`, `LanguageStandard=stdcpp17`, `PlatformToolset=v145`
 - Output: `out/bin/<platform>-<config>/x64dbgMCP.dp{32,64}` (extension switches by platform via `TargetExt`)

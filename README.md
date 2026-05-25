@@ -79,9 +79,9 @@ claude mcp add --transport http x64dbg http://localhost:3001
 ```json
 {
   "mcpServers": {
-    "x64dbg": {
-      "url": "http://localhost:27041"
-    }
+		"x64dbgmcp": {
+			"url": "http://localhost:3001",
+		}
   }
 }
 ```

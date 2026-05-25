@@ -1,0 +1,8 @@
+{
+	"servers": {
+		"x64dbgmcp": {
+			"url": "http://localhost:3001",
+		}
+	},
+	"inputs": []
+}
