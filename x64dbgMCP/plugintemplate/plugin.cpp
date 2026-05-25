@@ -21,8 +21,8 @@
 // - https://help.x64dbg.com/en/latest/developers/plugins/index.html
 
 // mcp.start [port=3001],[host=localhost] - start MCP server
-//   port : TCP port to listen on (1025-49150)
-//   host : bind address; pass 0.0.0.0 to expose beyond loopback (default localhost)
+//   port  : TCP port to listen on (1025-49150)
+//   host  : bind address; pass 0.0.0.0 to expose beyond loopback (default localhost)
 static bool cbMcpStart(int argc, char** argv)
 {
     if (x64dbgMCP::McpServerHost::IsRunning) {
@@ -41,8 +41,13 @@ static bool cbMcpStart(int argc, char** argv)
     if (argc >= 3 && argv[2] && argv[2][0])
         host = gcnew System::String(argv[2]);
 
-    if (x64dbgMCP::McpServerHost::Start(port, host)) {
-        dprintf("MCP server started on %s:%d\n", host ? argv[2] : "localhost", port);
+    bool enableDebugging = true;
+    if (argc >= 4 && argv[3] && argv[3][0])
+        enableDebugging = (atoi(argv[3]) != 0);
+
+    if (x64dbgMCP::McpServerHost::Start(port, host, enableDebugging)) {
+        dprintf("MCP server started on %s:%d (debug=%d)\n",
+            host ? argv[2] : "localhost", port, enableDebugging ? 1 : 0);
         return true;
     }
 

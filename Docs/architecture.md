@@ -60,7 +60,7 @@ The plugin is a **single in-process DLL**. The native side handles x64dbg's plug
 | Phase | Trigger | Effect |
 |---|---|---|
 | Load | x64dbg loads `*.dp32`/`*.dp64` at startup or via `Plugins → Load` | Native `pluginit` registers x64dbg command `mcp.start`. CLR is initialised lazily on first managed call. |
-| Activate | User issues `mcp.start [port=3001],[host=localhost]` in x64dbg command line | Calls `McpServerHost::Start(port, ...)`. A background `Task` is launched which constructs `WebApplication` and runs `RunAsync` until `StopAsync`. |
+| Activate | User issues `mcp.start [port=3001],[host=localhost]` in x64dbg command line | A background `Task` is launched which constructs `WebApplication` and runs `RunAsync` until `StopAsync`. |
 | Serve | MCP client connects via Streamable HTTP (`POST /`) or Legacy SSE (`GET /sse` + `POST /message`) | Tool/resource methods are dispatched on ASP.NET Core thread-pool threads. Each method calls into x64dbg pluginsdk synchronously. |
 | Deactivate | x64dbg shuts down, plugin unloads, or explicit stop command | `McpServerHost::Stop` calls `app.StopAsync` and waits up to 5 s for the background task. |
 
