@@ -45,7 +45,7 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 
 调试态（mutating）：
 
-- `DebugControl { run, stop, pause, StepInto, StepOver, StepOut, init, run_command }`
+- `DebugControl { init, run, stop, pause, StepInto, StepOver, StepOut, run_command }`
 - `Registers { get, set, dump }` — 名称由 x64dbg 解析，覆盖任意寄存器/标志
 - `Breakpoints { list, get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch }`
 - `Memory { write, alloc, free }`
