@@ -551,17 +551,17 @@ namespace x64dbgMCP {
         [Description(
             "Debug control. Drives the x64dbg debug session.\n"
             "Actions:\n"
+            "  init        : { exePath, cmdLine?, curFolder? } -- load and start a new debuggee\n"
+            "  stop        : detach/terminate the debuggee\n"
             "  run         : continue execution (returns immediately, does not wait for next pause)\n"
             "  pause       : break into the debugger\n"
-            "  stop        : detach/terminate the debuggee\n"
-            "  step_into   : single-step into\n"
-            "  step_over   : single-step over calls\n"
-            "  step_out    : run until current function returns\n"
-            "  init        : { exePath, cmdLine?, curFolder? } -- load and start a new debuggee\n"
+            "  StepInto    : single-step into\n"
+            "  StepOver    : single-step over calls\n"
+            "  StepOut     : run until current function returns\n"
             "  run_command : { command, wait? } -- raw x64dbg command (https://help.x64dbg.com/en/latest/commands/index.html); wait=true uses DbgCmdExecDirect\n"
         )]
         static Object^ DebugControl(
-            [Description("Action: \"run\"|\"pause\"|\"stop\"|\"step_into\"|\"step_over\"|\"step_out\"|\"init\"|\"run_command\"")]
+            [Description("Action: \"run\"|\"pause\"|\"stop\"|\"StepInto\"|\"StepOver\"|\"StepOut\"|\"init\"|\"run_command\"")]
             String^ action,
             [Description("Path to executable (required for action=init)")]
             [DefaultValue("")]
@@ -589,9 +589,9 @@ namespace x64dbgMCP {
             if (action == "run")             cmd = "run";
             else if (action == "pause")      cmd = "pause";
             else if (action == "stop")       cmd = "stop";
-            else if (action == "step_into")  cmd = "StepInto";
-            else if (action == "step_over")  cmd = "StepOver";
-            else if (action == "step_out")   cmd = "StepOut";
+            else if (action == "StepInto")   cmd = "StepInto";
+            else if (action == "StepOver")   cmd = "StepOver";
+            else if (action == "StepOut")    cmd = "StepOut";
             else if (action == "init")
             {
                 if (String::IsNullOrEmpty(exePath))

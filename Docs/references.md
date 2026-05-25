@@ -79,7 +79,7 @@ When implementing a `DebugControl` action that maps onto a raw command, consult 
 
 | Group | URL | Used by |
 |---|---|---|
-| Debug control | [help.x64dbg.com/.../debug-control/index.html](https://help.x64dbg.com/en/latest/commands/debug-control/index.html) | `DebugControl{run, pause, stop, restart, step_*, init}` |
+| Debug control | [help.x64dbg.com/.../debug-control/index.html](https://help.x64dbg.com/en/latest/commands/debug-control/index.html) | `DebugControl{init, stop, run, pause, Step*}` |
 | Breakpoints | [help.x64dbg.com/.../breakpoint-control/index.html](https://help.x64dbg.com/en/latest/commands/breakpoint-control/index.html) | `Breakpoints{...}` |
 | Memory operations | [help.x64dbg.com/.../memory-operations/index.html](https://help.x64dbg.com/en/latest/commands/memory-operations/index.html) | `Memory{write, alloc, free}` |
 | Threads | [help.x64dbg.com/.../thread-control/index.html](https://help.x64dbg.com/en/latest/commands/thread-control/index.html) | `Threads{...}` |

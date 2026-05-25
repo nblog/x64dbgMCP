@@ -18,7 +18,7 @@ This document encodes the **non-negotiable rules** for shaping MCP tools, resour
 | Helper class | `Helpers`, `internal` access only | — |
 | Result class | `<Domain><Verb>Result` or `<Domain>Info` | `DisassembleResult`, `ModuleInfo`, `BreakpointEntry` |
 
-Action names: prefer `list`, `get`, `set`, `delete`, `set_batch`, `delete_batch`. For control clusters use the natural verb: `run`, `pause`, `step_into`, `step_over`, `step_out`, `restart`, `stop`.
+Action names: prefer `list`, `get`, `set`, `delete`, `set_batch`, `delete_batch`. For control clusters use the natural verb: `init`, `stop`, `run`, `pause`, `StepInto`, `StepOver`, `StepOut`.
 
 ---
 

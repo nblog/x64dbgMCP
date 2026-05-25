@@ -461,17 +461,16 @@ public:
 
 These tools are registered only when `McpServerHost::Start(..., enableDebugging: true)`.
 
-### `DebugControl{run, pause, stop, restart, step_into, step_over, step_out, init, run_command}` 🟡
+### `DebugControl{init, stop, run, pause, Step*, run_command}` 🟡
 
 | Action | Params | Notes |
 |---|---|---|
+| `stop` | — | Detach/terminate |
 | `run` | — | Returns immediately; does not wait for next pause |
 | `pause` | — | |
-| `stop` | — | Detach/terminate |
-| `restart` | — | |
-| `step_into` | — | |
-| `step_over` | — | |
-| `step_out` | — | |
+| `StepInto` | — | |
+| `StepOver` | — | |
+| `StepOut` | — | |
 | `init` | `{ exePath: string, cmdLine?: string, curFolder?: string }` | Loads target executable |
 | `run_command` | `{ command: string, wait?: bool }` | Raw x64dbg command; `wait` uses `DbgCmdExecDirect` |
 
@@ -581,7 +580,7 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | `FindPattern` | tool `FindPattern` | Added `scope`, `maxResults` |
 | `InitDebug` | `DebugControl{action:"init"}` | |
 | `ParseExpression`, `ResolveLabel`, `GetStringAt` | tools `ParseExpression`, `GetStringAt` | `ResolveLabel` collapses into `ParseExpression` |
-| `IsDebugging`, `IsRunning`, `DebugRun`, `DebugPause`, `DebugStop`, `DebugRestart`, `StepInto`, `StepOver`, `StepOut`, `RunCommand` | `DebugControl{...}` | |
+| `IsDebugging`, `IsRunning`, ..., `RunCommand` | `DebugControl{...}` | |
 | `GetBreakpointList`, `SetBreakpoint`, `DeleteBreakpoint`, `DisableBreakpoint`, `SetHardwareBreakpoint`, `DeleteHardwareBreakpoint` | `Breakpoints{...}` | |
 | `GetFlag`, `SetFlag`, `GetRegister`, `SetRegister`, `GetRegisterDump` | `Registers{...}` + tool `GetRegisterDump` | Name-based, no enum mirror |
 | `MemoryWrite`, `MemoryAlloc`, `MemoryFree` | `Memory{...}` | |
