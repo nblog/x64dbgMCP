@@ -22,10 +22,10 @@ namespace x64dbgMCP {
         static bool _running = false;
         static bool _enableDebugging = false;
 
-        static void Log(String^ msg)
+        static void Log(String^ message)
         {
             try {
-                Diagnostics::Debug::WriteLine(DateTime::Now.ToString("HH:mm:ss.fff") + " " + msg);
+                Diagnostics::Debug::WriteLine(String::Format("{0} {1}", DateTime::Now.ToString("HH:mm:ss.fff"), message));
             } catch (...) {}
         }
 

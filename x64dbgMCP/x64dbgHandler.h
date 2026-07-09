@@ -771,14 +771,18 @@ namespace x64dbgMCP {
         {
             auto r = gcnew RegisterDumpResult();
             r->Success = true;
-            r->ThreadId = -1;
+            { duint tid = -1; if (Helpers::ResolveExpression("tid()", tid)) r->ThreadId = (int)tid; }
             r->Registers = gcnew Dictionary<String^, String^>();
             r->Flags = gcnew Dictionary<String^, bool>();
 
             array<String^>^ regs = gcnew array<String^>{
+#if 0
                 "cax", "cbx", "ccx", "cdx", "csi", "cdi", "cbp", "csp", "cip",
-#ifdef _WIN64
+#elif defined(_WIN64)
+				"rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp", "rip",
                 "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+#else
+				"eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp", "eip",
 #endif
             };
             for each (String ^ rn in regs)
