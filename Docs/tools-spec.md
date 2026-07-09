@@ -74,7 +74,28 @@ public:
     property String^ X64dbgDirectory;   // BridgeUserDirectory()
     property bool IsDebugging;
     property bool IsRunning;
-    property Dictionary<String^, LinkRef^>^ Links;  // → modules, memory/map, threads
+    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/map, threads
+};
+```
+
+### `x64dbg://process` 🟢
+
+Information about the currently debugged process. Empty/null fields when not debugging.
+
+```cpp
+public ref class ProcessInfo
+{
+public:
+    // property String^ Handle;          // native process handle (hex)
+    property int ProcessId;              // PID (0 when not debugging)
+    property int ThreadId;               // current thread ID (0 when not debugging)
+    property String^ ImageBase;          // base address of the main module (hex)
+    property String^ EntryPoint;         // (hex)
+    property String^ PebAddress;         // PEB address (hex)
+    property String^ TebAddress;         // TEB address for current thread (hex)
+    property String^ KUserSharedData;    // KUSER_SHARED_DATA address (hex)
+    property String^ Path;               // full path to the executable
+    property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, threads
 };
 ```
 
@@ -85,7 +106,7 @@ List of all loaded modules in the debugged process.
 - Returns `List<ModuleInfo>` with `_links.self` set per item to `x64dbg://modules/{name}`.
 - Empty list when not debugging (not an error).
 
-### `x64dbg://modules/{name}` 🟢
+### `x64dbg://modules/{name}` ⚪
 
 ```cpp
 public ref class ModuleInfo
@@ -97,11 +118,11 @@ public:
     property String^ Size;           // hex
     property String^ Entry;          // hex
     property bool IsMainModule;
-    property Dictionary<String^, LinkRef^>^ Links;  // sections, exports, imports, symbols
+    property Dictionary<String^, LinkRef^>^ Links;  // sections, exports, imports
 };
 ```
 
-### `x64dbg://modules/{name}/sections` 🟢
+### `x64dbg://modules/{name}/sections` ⚪
 
 Returns `List<ModuleSection>`:
 
@@ -115,7 +136,7 @@ public:
 };
 ```
 
-### `x64dbg://modules/{name}/exports` 🟢
+### `x64dbg://modules/{name}/exports` ⚪
 
 Returns `List<ModuleExport>`:
 
@@ -131,7 +152,7 @@ public:
 };
 ```
 
-### `x64dbg://modules/{name}/imports` 🟢
+### `x64dbg://modules/{name}/imports` ⚪
 
 Returns `List<ModuleImport>`:
 
@@ -146,22 +167,7 @@ public:
 };
 ```
 
-### `x64dbg://modules/{name}/symbols` 🟡
-
-Returns `List<SymbolEntry>`. Pagination via `?offset=&limit=` query params on the URI.
-
-```cpp
-public ref class SymbolEntry
-{
-public:
-    property String^ Name;
-    property String^ DecoratedName;  // null if not C++ mangled
-    property String^ Address;        // hex
-    property String^ Type;           // "import" | "export" | "user" | "auto"
-};
-```
-
-### `x64dbg://memory/map` 🟢
+### `x64dbg://memory/map` ⚪
 
 Returns `List<MemoryRegion>` with `_links` at the top level:
 
@@ -353,11 +359,11 @@ public:
 
 ### `GetRegisterDump(threadId?)` 🟢
 
-Returns all GPRs, flags, and CIP for the active or specified thread. Single-call replacement for per-register get.
+Returns all GPRs, segment registers, debug registers, flags, and error status for the active or specified thread.
 
 ```cpp
 [McpServerTool(ReadOnly = true),
- Description("Dump all general-purpose registers and flags for the active or specified thread.")]
+ Description("Dump all registers, flags, and error status for the active or specified thread.")]
 RegisterDumpResult^ GetRegisterDump(
     [Description("Thread ID (omit for active thread)")] int threadId
 );
@@ -366,10 +372,20 @@ public ref class RegisterDumpResult : McpResult
 {
 public:
     property int ThreadId;
-    property Dictionary<String^, String^>^ Registers;  // name → hex value
-    property Dictionary<String^, bool>^ Flags;         // "zf" → true, ...
+    property Dictionary<String^, String^>^ Registers;  // name → hex value (GPRs, segments, debug)
+    property Dictionary<String^, bool>^ Flags;         // "zf" → true, "of" → false, ...
+    property String^ LastError;                        // hex (from TEB)
+    property String^ LastStatus;                       // hex (from TEB)
 };
 ```
+
+Registers includes:
+- **x64**: rax, rbx, rcx, rdx, rsi, rdi, rbp, rsp, rip, r8-r15
+- **x86**: eax, ebx, ecx, edx, esi, edi, ebp, esp, eip
+- **Segments**: cs, ds, es, fs, gs, ss
+- **Debug**: dr0, dr1, dr2, dr3, dr6, dr7
+
+Flags includes: zf, of, cf, pf, sf, tf, af, df, if
 
 ---
 
@@ -546,7 +562,92 @@ Trivial wrapper; useful for AI to leave breadcrumbs in the debugger UI.
 
 ---
 
-## 6. Out of Scope (deliberately not exposed)
+## 6. Reserved Resources (specified but not yet implemented)
+
+The following resources are **reserved** in the URI namespace and specified here for completeness. They are not yet implemented; attempts to access them will return an error or empty response until implementation is complete.
+
+### `x64dbg://symbols` ⚪
+
+Returns `List<SymbolEntry>` across all modules. Pagination via `?offset=&limit=` query params.
+
+```cpp
+public ref class SymbolEntry
+{
+public:
+    property String^ Name;
+    property String^ DecoratedName;  // null if not C++ mangled
+    property String^ Address;        // hex
+    property String^ Module;         // containing module
+    property String^ Type;           // "import" | "export" | "user" | "auto"
+};
+```
+
+### `x64dbg://labels` ⚪
+
+Returns `List<LabelEntry>` across all modules. User-defined and automatic labels.
+
+```cpp
+public ref class LabelEntry
+{
+public:
+    property String^ Address;        // hex
+    property String^ Text;
+    property String^ Module;         // containing module
+    property bool Manual;
+    property bool Temporary;
+};
+```
+
+### `x64dbg://comments` ⚪
+
+Returns `List<CommentEntry>` across all modules.
+
+```cpp
+public ref class CommentEntry
+{
+public:
+    property String^ Address;        // hex
+    property String^ Text;
+    property String^ Module;         // containing module
+    property bool Manual;
+};
+```
+
+### `x64dbg://bookmarks` ⚪
+
+Returns `List<BookmarkEntry>` across all modules.
+
+```cpp
+public ref class BookmarkEntry
+{
+public:
+    property String^ Address;        // hex
+    property String^ Module;         // containing module
+    property bool Manual;
+};
+```
+
+### `x64dbg://breakpoints` ⚪
+
+Returns `List<BreakpointEntry>` across all modules. All breakpoint types.
+
+```cpp
+public ref class BreakpointEntry
+{
+public:
+    property String^ Address;        // hex
+    property String^ Type;           // "normal" | "hardware" | "memory" | "dll" | "exception"
+    property String^ HwType;         // "access" | "write" | "execute" | null
+    property bool Enabled;
+    property int HitCount;
+    property String^ Module;
+    property String^ Condition;      // x64dbg conditional expression if any
+};
+```
+
+---
+
+## 7. Out of Scope (deliberately not exposed)
 
 The following PoC-era tools are intentionally **not** exposed in the v0 baseline:
 
@@ -559,7 +660,7 @@ If a future need arises, propose an ADR before adding back.
 
 ---
 
-## 7. Mapping to PoC
+## 8. Mapping to PoC
 
 Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-handler-todos` branch.
 

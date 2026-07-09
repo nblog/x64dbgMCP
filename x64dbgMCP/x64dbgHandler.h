@@ -116,6 +116,7 @@ namespace x64dbgMCP {
             return s ? gcnew String(s) : nullptr;
         }
 
+        // https://help.x64dbg.com/en/latest/introduction/Expression-functions.html
         static bool ResolveExpression(String^ expr, [Out] duint% result)
         {
             result = 0;
@@ -185,6 +186,24 @@ namespace x64dbgMCP {
     {
     public:
         [JsonPropertyName("data")] property List<ModuleEntry^>^ Data;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
+    public ref class ProcessInfo
+    {
+    public:
+        // [JsonPropertyName("handle")]         property String^ Handle;
+        [JsonPropertyName("processId")]         property int ProcessId;
+        [JsonPropertyName("threadId")]          property int ThreadId;
+        [JsonPropertyName("base")]              property String^ ImageBase;
+        [JsonPropertyName("entry")]             property String^ EntryPoint;
+        [JsonPropertyName("peb")]               property String^ PebAddress;
+        [JsonPropertyName("teb")]               property String^ TebAddress;
+        [JsonPropertyName("kUserSharedData")]   property String^ KUserSharedData;
+        [JsonPropertyName("path")]              property String^ Path;
 
         [JsonPropertyName("_links")]
         [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
@@ -290,6 +309,14 @@ namespace x64dbgMCP {
 
         [JsonPropertyName("flags")]
         property Dictionary<String^, bool>^ Flags;
+
+        [JsonPropertyName("lastError")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ LastError;
+
+        [JsonPropertyName("lastStatus")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ LastStatus;
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -312,9 +339,72 @@ namespace x64dbgMCP {
             info->IsRunning = info->IsDebugging && DbgIsRunning();
             info->Links = gcnew Dictionary<String^, LinkRef^>();
             info->Links["self"] = Helpers::UriLink("x64dbg://session");
+            info->Links["process"] = Helpers::UriLink("x64dbg://process");
             info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
 
             return MakeJson(info, "x64dbg://session");
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://process", Name = "process", MimeType = "application/json")]
+        [Description("Information about the currently debugged process: PID, path, handle, image base, thread info, and system structures.")]
+        static ResourceContents^ Process()
+        {
+            auto info = gcnew ProcessInfo();
+            info->ProcessId = 0;
+            info->ThreadId = 0;
+            info->ImageBase = nullptr;
+			info->EntryPoint = nullptr;
+            info->PebAddress = nullptr;
+            info->TebAddress = nullptr;
+            info->KUserSharedData = nullptr;
+            info->Path = nullptr;
+            info->Links = gcnew Dictionary<String^, LinkRef^>();
+            info->Links["self"] = Helpers::UriLink("x64dbg://process");
+            info->Links["session"] = Helpers::UriLink("x64dbg://session");
+
+            if (DbgIsDebugging())
+            {
+                duint value = 0;
+
+                //// Get process handle
+                //HANDLE hProcess = DbgGetProcessHandle();
+                //if (hProcess)
+                //    info->Handle = Helpers::FormatAddress((duint)hProcess);
+
+                // Get process ID
+				if (Script::Misc::ParseExpression("$pid", &value))
+					info->ProcessId = (int)value;
+
+                // Get current thread ID
+                if (Script::Misc::ParseExpression("tid()", &value))
+                    info->ThreadId = (int)value;
+
+                // Get PEB address
+				if (Script::Misc::ParseExpression("peb()", &value))
+					info->PebAddress = Helpers::FormatAddress(value);
+
+                // Get TEB address for current thread
+                if (Script::Misc::ParseExpression("teb()", &value))
+                    info->TebAddress = Helpers::FormatAddress(value);
+
+				// Get KUSER_SHARED_DATA address (always 0x7FFE0000 on Windows)
+				if (Script::Misc::ParseExpression("kusd()", &value))
+					info->KUserSharedData = Helpers::FormatAddress(value);
+
+                // Get main module info for path and image base
+                Script::Module::ModuleInfo mod;
+                if (Script::Module::GetMainModuleInfo(&mod))
+                {
+                    info->ImageBase = Helpers::FormatAddress(mod.base);
+					info->EntryPoint = Helpers::FormatAddress(mod.entry);
+                    info->Path = Helpers::FromCStr(mod.path);
+                }
+
+                info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
+                info->Links["threads"] = Helpers::UriLink("x64dbg://threads");
+            }
+
+            return MakeJson(info, "x64dbg://process");
         }
 
         [McpServerResource(UriTemplate = "x64dbg://modules", Name = "modules", MimeType = "application/json")]
@@ -540,6 +630,17 @@ namespace x64dbgMCP {
     };
 
     // ────────────────────────────────────────────────────────────────
+    //  Unmanaged helpers for DbgGetRegDumpEx
+    // ────────────────────────────────────────────────────────────────
+
+#pragma unmanaged
+    static bool GetRegisterDumpUnmanaged(REGDUMP_AVX512* regdump)
+    {
+        return DbgGetRegDumpEx(regdump, sizeof(REGDUMP_AVX512));
+    }
+#pragma managed
+
+    // ────────────────────────────────────────────────────────────────
     //  Debug-mode tools (mega) — McpDebuggingTools (ADR-003 Layer C)
     // ────────────────────────────────────────────────────────────────
 
@@ -753,10 +854,10 @@ namespace x64dbgMCP {
             }
 
             std::string n = msclr::interop::marshal_as<std::string>(name);
-            if (!DbgValToString(n.c_str(), v))
+            if (!DbgValSetScalar(n.c_str(), v))
             {
                 r->Success = false;
-                r->Error = Helpers::MakeError("x64dbg_failed", "DbgValToString failed for: " + name);
+                r->Error = Helpers::MakeError("x64dbg_failed", "DbgValSetScalar/DbgValToString failed for: " + name);
                 return r;
             }
 
@@ -771,37 +872,89 @@ namespace x64dbgMCP {
         {
             auto r = gcnew RegisterDumpResult();
             r->Success = true;
-            { duint tid = -1; if (Helpers::ResolveExpression("tid()", tid)) r->ThreadId = (int)tid; }
+            r->ThreadId = (int)DbgGetThreadId();
             r->Registers = gcnew Dictionary<String^, String^>();
             r->Flags = gcnew Dictionary<String^, bool>();
 
-            array<String^>^ regs = gcnew array<String^>{
-#if 0
-                "cax", "cbx", "ccx", "cdx", "csi", "cdi", "cbp", "csp", "cip",
-#elif defined(_WIN64)
-				"rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp", "rip",
-                "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
-#else
-				"eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp", "eip",
-#endif
-            };
-            for each (String ^ rn in regs)
+            // Allocate REGDUMP_AVX512 on unmanaged heap
+            REGDUMP_AVX512* regdump = new REGDUMP_AVX512();
+            if (!GetRegisterDumpUnmanaged(regdump))
             {
-                duint v = 0;
-                if (Helpers::ResolveExpression(rn, v))
-                    r->Registers[rn] = Helpers::FormatAddress(v);
+                delete regdump;
+                r->Success = false;
+				r->Error = Helpers::MakeError("not_attached", "DbgGetRegDumpEx failed - not debugging or no thread context");
+                return r;
             }
 
-            r->Flags["zf"] = Script::Flag::Get(Script::Flag::ZF);
-            r->Flags["of"] = Script::Flag::Get(Script::Flag::OF);
-            r->Flags["cf"] = Script::Flag::Get(Script::Flag::CF);
-            r->Flags["pf"] = Script::Flag::Get(Script::Flag::PF);
-            r->Flags["sf"] = Script::Flag::Get(Script::Flag::SF);
-            r->Flags["tf"] = Script::Flag::Get(Script::Flag::TF);
-            r->Flags["af"] = Script::Flag::Get(Script::Flag::AF);
-            r->Flags["df"] = Script::Flag::Get(Script::Flag::DF);
-            r->Flags["if"] = Script::Flag::Get(Script::Flag::IF);
+            auto& ctx = regdump->regcontext;
 
+            // General-purpose registers
+#ifdef _WIN64
+            r->Registers["rax"] = Helpers::FormatAddress(ctx.cax);
+            r->Registers["rbx"] = Helpers::FormatAddress(ctx.cbx);
+            r->Registers["rcx"] = Helpers::FormatAddress(ctx.ccx);
+            r->Registers["rdx"] = Helpers::FormatAddress(ctx.cdx);
+            r->Registers["rsi"] = Helpers::FormatAddress(ctx.csi);
+            r->Registers["rdi"] = Helpers::FormatAddress(ctx.cdi);
+            r->Registers["rbp"] = Helpers::FormatAddress(ctx.cbp);
+            r->Registers["rsp"] = Helpers::FormatAddress(ctx.csp);
+            r->Registers["rip"] = Helpers::FormatAddress(ctx.cip);
+            r->Registers["r8"]  = Helpers::FormatAddress(ctx.r8);
+            r->Registers["r9"]  = Helpers::FormatAddress(ctx.r9);
+            r->Registers["r10"] = Helpers::FormatAddress(ctx.r10);
+            r->Registers["r11"] = Helpers::FormatAddress(ctx.r11);
+            r->Registers["r12"] = Helpers::FormatAddress(ctx.r12);
+            r->Registers["r13"] = Helpers::FormatAddress(ctx.r13);
+            r->Registers["r14"] = Helpers::FormatAddress(ctx.r14);
+            r->Registers["r15"] = Helpers::FormatAddress(ctx.r15);
+#else
+            r->Registers["eax"] = Helpers::FormatAddress(ctx.cax);
+            r->Registers["ebx"] = Helpers::FormatAddress(ctx.cbx);
+            r->Registers["ecx"] = Helpers::FormatAddress(ctx.ccx);
+            r->Registers["edx"] = Helpers::FormatAddress(ctx.cdx);
+            r->Registers["esi"] = Helpers::FormatAddress(ctx.csi);
+            r->Registers["edi"] = Helpers::FormatAddress(ctx.cdi);
+            r->Registers["ebp"] = Helpers::FormatAddress(ctx.cbp);
+            r->Registers["esp"] = Helpers::FormatAddress(ctx.csp);
+            r->Registers["eip"] = Helpers::FormatAddress(ctx.cip);
+#endif
+
+            // Segment registers
+            r->Registers["cs"] = Helpers::FormatAddress(ctx.cs);
+            r->Registers["ds"] = Helpers::FormatAddress(ctx.ds);
+            r->Registers["es"] = Helpers::FormatAddress(ctx.es);
+            r->Registers["fs"] = Helpers::FormatAddress(ctx.fs);
+            r->Registers["gs"] = Helpers::FormatAddress(ctx.gs);
+            r->Registers["ss"] = Helpers::FormatAddress(ctx.ss);
+
+            // Debug registers
+            r->Registers["dr0"] = Helpers::FormatAddress(ctx.dr0);
+            r->Registers["dr1"] = Helpers::FormatAddress(ctx.dr1);
+            r->Registers["dr2"] = Helpers::FormatAddress(ctx.dr2);
+            r->Registers["dr3"] = Helpers::FormatAddress(ctx.dr3);
+            r->Registers["dr6"] = Helpers::FormatAddress(ctx.dr6);
+            r->Registers["dr7"] = Helpers::FormatAddress(ctx.dr7);
+
+            // Flags - extract from eflags (REGDUMP_AVX512 doesn't have FLAGS field)
+            duint eflags = ctx.eflags;
+            r->Flags["cf"] = (eflags & 0x0001) != 0;  // Carry Flag
+            r->Flags["pf"] = (eflags & 0x0004) != 0;  // Parity Flag
+            r->Flags["af"] = (eflags & 0x0010) != 0;  // Auxiliary Carry Flag
+            r->Flags["zf"] = (eflags & 0x0040) != 0;  // Zero Flag
+            r->Flags["sf"] = (eflags & 0x0080) != 0;  // Sign Flag
+            r->Flags["tf"] = (eflags & 0x0100) != 0;  // Trap Flag
+            r->Flags["if"] = (eflags & 0x0200) != 0;  // Interrupt Enable Flag
+            r->Flags["df"] = (eflags & 0x0400) != 0;  // Direction Flag
+            r->Flags["of"] = (eflags & 0x0800) != 0;  // Overflow Flag
+
+            // LastError and LastStatus from REGDUMP_AVX512
+            if (regdump->lastError != 0)
+                r->LastError = Helpers::FormatAddress(regdump->lastError);
+
+            if (regdump->lastStatus != 0)
+                r->LastStatus = Helpers::FormatAddress(regdump->lastStatus);
+
+            delete regdump;
             return r;
         }
     };

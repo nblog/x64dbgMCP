@@ -15,8 +15,8 @@ for /l %%i in (0, 1, 1) do ( curl -L %X64TEMPLATE%blob/main/src/!PLUGIN[%%i]!.h?
 
 
 :: pluginsdk
-:: https://api.github.com/repos/x64dbg/x64dbg/releases/latest
-set SNAPSHOT=2025.08.19
+:: https://github.com/x64dbg/x64dbg/releases/latest
+set SNAPSHOT=2026.05.27
 curl -L https://github.com/x64dbg/x64dbg/releases/download/%SNAPSHOT%/x64dbg-pluginsdk.zip -o x64dbg-pluginsdk.zip
 if not exist pluginsdk mkdir pluginsdk
 tar -xf x64dbg-pluginsdk.zip -C pluginsdk/

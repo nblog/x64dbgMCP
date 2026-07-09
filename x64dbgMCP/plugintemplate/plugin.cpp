@@ -17,8 +17,16 @@
 #include "plugin.h"
 #include "../x64dbgMCP.h"
 
+// Examples: https://github.com/x64dbg/x64dbg/wiki/Plugins
 // References:
 // - https://help.x64dbg.com/en/latest/developers/plugins/index.html
+// - https://x64dbg.com/blog/2016/10/04/architecture-of-x64dbg.html
+// - https://x64dbg.com/blog/2016/10/20/threading-model.html
+// - https://x64dbg.com/blog/2016/07/30/x64dbg-plugin-sdk.html
+
+// Command use the same signature as main in C
+// argv[0] contains the full command, after that are the arguments
+// NOTE: arguments are separated by a COMMA (not space like WinDbg)
 
 // mcp.start [port=3001],[host=localhost] - start MCP server
 //   port  : TCP port to listen on (1025-49150)
@@ -73,6 +81,7 @@ bool pluginInit(PLUG_INITSTRUCT* initStruct)
 {
     dprintf("pluginInit(pluginHandle: %d)\n", pluginHandle);
 
+    // Prefix of the functions to call here: _plugin_register
     _plugin_registercommand(pluginHandle, "mcp.start", cbMcpStart, false);
     _plugin_registercommand(pluginHandle, "mcp.stop", cbMcpStop, false);
 
@@ -81,8 +90,12 @@ bool pluginInit(PLUG_INITSTRUCT* initStruct)
 }
 
 // Deinitialize your plugin data here.
+// NOTE: you are responsible for gracefully closing your GUI
+// This function is not executed on the GUI thread, so you might need
+// to use WaitForSingleObject or similar to wait for everything to close.
 void pluginStop()
 {
+    // Prefix of the functions to call here: _plugin_unregister
     x64dbgMCP::McpServerHost::Stop();
     dprintf("pluginStop(pluginHandle: %d)\n", pluginHandle);
 }
