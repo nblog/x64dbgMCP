@@ -94,7 +94,7 @@ claude mcp add --transport http x64dbg http://localhost:3001
 }
 ```
 
-连上后让 Agent 试一句：「读 `x64dbg://session`，告诉我现在是不是在调试」——能拿到 `IsDebugging` 字段就跑通了。
+连上后让 Agent 试一句：「读 `x64dbg://session`，告诉我现在是不是在调试」——能拿到 `isDebugging` 字段就跑通了。
 
 ---
 
