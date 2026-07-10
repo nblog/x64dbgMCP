@@ -11,14 +11,14 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 | URI | 用途 |
 |---|---|
 | `x64dbg://session` | 会话快照（平台、是否在调试、是否运行、x64dbg 目录），导航根 |
+| `x64dbg://process` | 当前进程信息 |
+| `x64dbg://threads` | 线程列表 |
+| `x64dbg://memory/maps` | 内存映射 |
 | `x64dbg://modules` | 已加载模块列表 |
 | `x64dbg://modules/{name}` | 单模块基本信息（基址、大小、入口） |
 | `x64dbg://modules/{name}/sections` | 模块节表 |
 | `x64dbg://modules/{name}/exports` | 导出表 |
 | `x64dbg://modules/{name}/imports` | 导入表 |
-| `x64dbg://modules/{name}/symbols` | 符号（PDB / 导出 / 用户标记） |
-| `x64dbg://memory/map` | 内存映射 |
-| `x64dbg://threads` | 线程列表 |
 
 ### Rich-param Tools — 热路径查询
 

@@ -74,7 +74,7 @@ public:
     property String^ X64dbgDirectory;   // BridgeUserDirectory()
     property bool IsDebugging;
     property bool IsRunning;
-    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/map, threads
+    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/maps, threads
 };
 ```
 
@@ -95,18 +95,19 @@ public:
     property String^ TebAddress;         // TEB address for current thread (hex)
     property String^ KUserSharedData;    // KUSER_SHARED_DATA address (hex)
     property String^ Path;               // full path to the executable
-    property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, threads
+    property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory/maps, threads
 };
 ```
 
 ### `x64dbg://modules` 🟢
 
-List of all loaded modules in the debugged process.
+List of all loaded modules in the debugged process, wrapped in `ModulesPayload` so the
+collection can carry navigation links without repeating them on every response field.
 
-- Returns `List<ModuleInfo>` with `_links.self` set per item to `x64dbg://modules/{name}`.
+- `Data` contains `ModuleInfo` entries with `_links.self` set per item to `x64dbg://modules/{name}`.
 - Empty list when not debugging (not an error).
 
-### `x64dbg://modules/{name}` ⚪
+### `x64dbg://modules/{name}` 🟢
 
 ```cpp
 public ref class ModuleInfo
@@ -117,12 +118,23 @@ public:
     property String^ Base;           // hex address
     property String^ Size;           // hex
     property String^ Entry;          // hex
+    property int SectionCount;
     property bool IsMainModule;
-    property Dictionary<String^, LinkRef^>^ Links;  // sections, exports, imports
+    property Dictionary<String^, LinkRef^>^ Links;  // self, modules, sections, exports, imports, entry_disasm
+};
+
+public ref class ModulesPayload
+{
+public:
+    property List<ModuleInfo^>^ Data;
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session
 };
 ```
 
-### `x64dbg://modules/{name}/sections` ⚪
+Unknown module names fail the resource request. The URI-template parameter is the loaded
+module name including its extension (for example, `kernel32.dll`).
+
+### `x64dbg://modules/{name}/sections` 🟢
 
 Returns `List<ModuleSection>`:
 
@@ -136,7 +148,7 @@ public:
 };
 ```
 
-### `x64dbg://modules/{name}/exports` ⚪
+### `x64dbg://modules/{name}/exports` 🟢
 
 Returns `List<ModuleExport>`:
 
@@ -145,6 +157,7 @@ public ref class ModuleExport
 {
 public:
     property String^ Name;
+    property String^ UndecoratedName;
     property String^ ForwardName;    // null if not a forwarder
     property int Ordinal;
     property String^ Rva;            // hex
@@ -152,7 +165,7 @@ public:
 };
 ```
 
-### `x64dbg://modules/{name}/imports` ⚪
+### `x64dbg://modules/{name}/imports` 🟢
 
 Returns `List<ModuleImport>`:
 
@@ -161,45 +174,85 @@ public ref class ModuleImport
 {
 public:
     property String^ Name;
-    property String^ ModuleName;
+    property String^ UndecoratedName;
     property String^ IatRva;         // hex
     property String^ IatVa;          // hex
 };
 ```
 
-### `x64dbg://memory/map` ⚪
+`ModuleName` is intentionally absent: `Script::Module::ModuleImport` does not expose the
+source DLL name. The resource reports only fields that the public x64dbg Script API can
+provide truthfully.
 
-Returns `List<MemoryRegion>` with `_links` at the top level:
+### `x64dbg://memory/maps` 🟢
+
+Returns `MemoryMapsPayload` with `_links` at the top level. Protection values use
+x64dbg's fixed `ERWCG` display order (`Execute`, `Read`, `Write`, `Copy-on-write`,
+`Guard`) as produced by `DbgFunctions()->PageRightsToString`; state and type are also
+display strings. Addresses and sizes remain unambiguous hexadecimal strings. `Data` is
+empty when not debugging.
 
 ```cpp
 public ref class MemoryRegion
 {
 public:
     property String^ Base;           // hex
+    property String^ AllocationBase; // hex
     property String^ Size;           // hex
-    property String^ Protect;        // "RWX" | "RW-" | "R--" | ...
-    property String^ Type;           // "image" | "private" | "mapped"
-    property String^ Module;         // null if not in a module
-    property String^ Section;        // null if not in a section
+    property String^ AllocationProtect; // "-R---" | "-RW--" | "ERWC-" | ...
+    property String^ Protect;        // "-R---" | "-RW--" | "ERWC-" | ...
+    property String^ State;          // "commit" | "reserve" | "free" | "unknown"
+    property String^ Type;           // "image" | "private" | "mapped" | "unknown"
+    property String^ Info;           // x64dbg memory-map annotation; null when empty
+};
+
+public ref class MemoryMapsPayload
+{
+public:
+    property List<MemoryRegion^>^ Data;
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
 };
 ```
 
-### `x64dbg://threads` 🟡
+### `x64dbg://threads` 🟢
 
-Returns `List<ThreadInfo>` (empty when not debugging):
+Returns `ThreadsPayload` (empty `Data` when not debugging). Fields mirror the useful
+facts exposed by `THREADALLINFO`; priority and wait reason are rendered with the same
+names used by x64dbg's Threads view.
 
 ```cpp
 public ref class ThreadInfo
 {
 public:
+    property int ThreadNumber;       // 0 is the main thread
+    // property String^ Handle;       // native handle, currently not exposed
     property int ThreadId;
     property String^ Name;
-    property String^ Cip;            // hex
+    property String^ Pc;             // program counter, hex
     property String^ EntryPoint;     // hex
-    property String^ State;          // "running" | "suspended" | "terminated"
+    property String^ TebAddress;     // hex
+    property unsigned int SuspendCount;
+    property String^ Priority;
+    property String^ WaitReason;
+    property unsigned int LastError;
+    property String^ UserTime;                   // CPU duration: "hh:mm:ss.fffffff" or "d:hh:mm:ss.fffffff"
+    property String^ KernelTime;                 // CPU duration: "hh:mm:ss.fffffff" or "d:hh:mm:ss.fffffff"
+    property String^ CreationTime;               // UTC ISO 8601
+    property unsigned long long Cycles;
     property bool IsActive;
 };
+
+public ref class ThreadsPayload
+{
+public:
+    property List<ThreadInfo^>^ Data;
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
+};
 ```
+
+`CreationTime` is an absolute timestamp. `UserTime` and `KernelTime` are cumulative CPU
+durations, not timestamps; all three are serialized as strings, while the two durations
+use the same representation as x64dbg's Threads view.
 
 ---
 
@@ -674,7 +727,7 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | `GetBookmarkList`, `GetBookmarkAt`, `SetBookmark`, `DeleteBookmark` | `Bookmarks{...}` | |
 | `GetXrefs`, `AddXref`, `GetXrefCountAt`, `GetXrefTypeAt` | `Xrefs{...}` | |
 | `GetModuleList`, `GetMainModuleInfo`, `GetModuleByAddr`, `GetModuleByName`, `GetMainModuleSectionList`, `GetSectionListByAddr`, `GetSectionListByName`, `GetExports`, `GetImports` | resources `x64dbg://modules/...` | All become URI-addressable |
-| `IsValidPtr`, `GetMemoryMaps`, `GetMemoryBase`, `GetMemorySize` | resource `x64dbg://memory/map` + tool `ParseExpression` | Most queries reduce to expression resolution |
+| `IsValidPtr`, `GetMemoryMaps`, `GetMemoryBase`, `GetMemorySize` | resource `x64dbg://memory/maps` + tool `ParseExpression` | Most queries reduce to expression resolution |
 | `MemoryRead` | tool `MemoryRead` | Added optional `compress` (lz4) for large reads |
 | `GetThreadList` | resource `x64dbg://threads` | |
 | `Disassemble` | tool `Disassemble` | Same name, raised `count` ceiling |

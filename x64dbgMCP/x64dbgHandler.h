@@ -116,6 +116,128 @@ namespace x64dbgMCP {
             return s ? gcnew String(s) : nullptr;
         }
 
+        static String^ FromCStrOrNull(const char* s)
+        {
+            return s && *s ? gcnew String(s) : nullptr;
+        }
+
+        static String^ FormatMemoryProtection(DWORD protect)
+        {
+            char rights[RIGHTS_STRING_SIZE]{};
+            return DbgFunctions()->PageRightsToString(protect, rights)
+                ? Helpers::FromCStr(rights)
+                : nullptr;
+        }
+
+        static String^ MemoryStateName(DWORD state)
+        {
+            switch (state)
+            {
+            case MEM_COMMIT:  return "commit";
+            case MEM_RESERVE: return "reserve";
+            case MEM_FREE:    return "free";
+            default:          return "unknown";
+            }
+        }
+
+        static String^ MemoryTypeName(DWORD type)
+        {
+            switch (type)
+            {
+            case MEM_IMAGE:   return "image";
+            case MEM_MAPPED:  return "mapped";
+            case MEM_PRIVATE: return "private";
+            default:          return "unknown";
+            }
+        }
+
+        static String^ ThreadPriorityName(THREADPRIORITY priority)
+        {
+            switch (priority)
+            {
+            case _PriorityIdle:         return "Idle";
+            case _PriorityAboveNormal:  return "AboveNormal";
+            case _PriorityBelowNormal:  return "BelowNormal";
+            case _PriorityHighest:      return "Highest";
+            case _PriorityLowest:       return "Lowest";
+            case _PriorityNormal:       return "Normal";
+            case _PriorityTimeCritical: return "TimeCritical";
+            default:                    return "Unknown";
+            }
+        }
+
+        static String^ ThreadWaitReasonName(THREADWAITREASON reason)
+        {
+            switch (reason)
+            {
+            case _Executive:        return "Executive";
+            case _FreePage:         return "FreePage";
+            case _PageIn:           return "PageIn";
+            case _PoolAllocation:   return "PoolAllocation";
+            case _DelayExecution:   return "DelayExecution";
+            case _Suspended:        return "Suspended";
+            case _UserRequest:      return "UserRequest";
+            case _WrExecutive:      return "WrExecutive";
+            case _WrFreePage:       return "WrFreePage";
+            case _WrPageIn:         return "WrPageIn";
+            case _WrPoolAllocation: return "WrPoolAllocation";
+            case _WrDelayExecution: return "WrDelayExecution";
+            case _WrSuspended:      return "WrSuspended";
+            case _WrUserRequest:    return "WrUserRequest";
+            case _WrEventPair:      return "WrEventPair";
+            case _WrQueue:          return "WrQueue";
+            case _WrLpcReceive:     return "WrLpcReceive";
+            case _WrLpcReply:       return "WrLpcReply";
+            case _WrVirtualMemory:  return "WrVirtualMemory";
+            case _WrPageOut:        return "WrPageOut";
+            case _WrRendezvous:     return "WrRendezvous";
+            case _Spare2:           return "Spare2";
+            case _Spare3:           return "Spare3";
+            case _Spare4:           return "Spare4";
+            case _Spare5:           return "Spare5";
+            case _WrCalloutStack:   return "WrCalloutStack";
+            case _WrKernel:         return "WrKernel";
+            case _WrResource:       return "WrResource";
+            case _WrPushLock:       return "WrPushLock";
+            case _WrMutex:          return "WrMutex";
+            case _WrQuantumEnd:     return "WrQuantumEnd";
+            case _WrDispatchInt:    return "WrDispatchInt";
+            case _WrPreempted:      return "WrPreempted";
+            case _WrYieldExecution: return "WrYieldExecution";
+            case _WrFastMutex:      return "WrFastMutex";
+            case _WrGuardedMutex:   return "WrGuardedMutex";
+            case _WrRundown:        return "WrRundown";
+            default:                return "Unknown";
+            }
+        }
+
+        static UInt64 FileTimeValue(FILETIME value)
+        {
+            return ((UInt64)value.dwHighDateTime << 32) | value.dwLowDateTime;
+        }
+
+        static String^ FormatFileTimeDuration(FILETIME value)
+        {
+            UInt64 ticks = FileTimeValue(value);
+            UInt64 totalSeconds = ticks / 10000000;
+            UInt64 days = totalSeconds / 86400;
+            UInt64 hours = (totalSeconds / 3600) % 24;
+            UInt64 minutes = (totalSeconds / 60) % 60;
+            UInt64 seconds = totalSeconds % 60;
+            UInt64 fraction = ticks % 10000000;
+            String^ time = hours.ToString("D2") + ":"
+                + minutes.ToString("D2") + ":"
+                + seconds.ToString("D2") + "."
+                + fraction.ToString("D7");
+            return days == 0 ? time : days.ToString() + ":" + time;
+        }
+
+        static String^ FormatFileTimeUtc(FILETIME value)
+        {
+            UInt64 ticks = FileTimeValue(value);
+            return ticks == 0 ? nullptr : DateTime::FromFileTimeUtc((Int64)ticks).ToString("O");
+        }
+
         // https://help.x64dbg.com/en/latest/introduction/Expression-functions.html
         static bool ResolveExpression(String^ expr, [Out] duint% result)
         {
@@ -171,7 +293,7 @@ namespace x64dbgMCP {
         property Dictionary<String^, LinkRef^>^ Links;
     };
 
-    public ref class ModuleEntry
+    public ref class ModuleInfo
     {
     public:
         [JsonPropertyName("name")]         property String^ Name;
@@ -179,13 +301,115 @@ namespace x64dbgMCP {
         [JsonPropertyName("base")]         property String^ Base;
         [JsonPropertyName("size")]         property String^ Size;
         [JsonPropertyName("entry")]        property String^ Entry;
+        [JsonPropertyName("sectionCount")] property int SectionCount;
         [JsonPropertyName("isMainModule")] property bool IsMainModule;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
     };
 
     public ref class ModulesPayload
     {
     public:
-        [JsonPropertyName("data")] property List<ModuleEntry^>^ Data;
+        [JsonPropertyName("data")] property List<ModuleInfo^>^ Data;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
+    public ref class ModuleSection
+    {
+    public:
+        [JsonPropertyName("name")]    property String^ Name;
+        [JsonPropertyName("address")] property String^ Address;
+        [JsonPropertyName("size")]    property String^ Size;
+    };
+
+    public ref class ModuleExport
+    {
+    public:
+        [JsonPropertyName("name")]            property String^ Name;
+        [JsonPropertyName("undecoratedName")] property String^ UndecoratedName;
+
+        [JsonPropertyName("forwardName")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ ForwardName;
+
+        [JsonPropertyName("ordinal")] property int Ordinal;
+        [JsonPropertyName("rva")]     property String^ Rva;
+        [JsonPropertyName("va")]      property String^ Va;
+    };
+
+    public ref class ModuleImport
+    {
+    public:
+        [JsonPropertyName("name")]            property String^ Name;
+        [JsonPropertyName("undecoratedName")] property String^ UndecoratedName;
+        [JsonPropertyName("iatRva")]          property String^ IatRva;
+        [JsonPropertyName("iatVa")]           property String^ IatVa;
+    };
+
+    public ref class MemoryRegion
+    {
+    public:
+        [JsonPropertyName("base")]              property String^ Base;
+        [JsonPropertyName("allocationBase")]    property String^ AllocationBase;
+        [JsonPropertyName("size")]              property String^ Size;
+        [JsonPropertyName("allocationProtect")] property String^ AllocationProtect;
+        [JsonPropertyName("protect")]           property String^ Protect;
+        [JsonPropertyName("state")]             property String^ State;
+        [JsonPropertyName("type")]              property String^ Type;
+
+        [JsonPropertyName("info")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Info;
+    };
+
+    public ref class MemoryMapsPayload
+    {
+    public:
+        [JsonPropertyName("data")] property List<MemoryRegion^>^ Data;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
+    public ref class ThreadInfo
+    {
+    public:
+        // [JsonPropertyName("handle")]       property String^ Handle;
+        [JsonPropertyName("threadNumber")] property int ThreadNumber;
+        [JsonPropertyName("threadId")]     property int ThreadId;
+
+        [JsonPropertyName("name")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Name;
+
+        [JsonPropertyName("pc")]           property String^ Cip;
+        [JsonPropertyName("entryPoint")]   property String^ EntryPoint;
+        [JsonPropertyName("tebAddress")]   property String^ TebAddress;
+        [JsonPropertyName("suspendCount")] property UInt32 SuspendCount;
+        [JsonPropertyName("priority")]     property String^ Priority;
+        [JsonPropertyName("waitReason")]   property String^ WaitReason;
+        [JsonPropertyName("lastError")]    property UInt32 LastError;
+        [JsonPropertyName("userTime")]     property String^ UserTime;
+        [JsonPropertyName("kernelTime")]   property String^ KernelTime;
+
+        [JsonPropertyName("creationTime")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ CreationTime;
+
+        [JsonPropertyName("cycles")]   property UInt64 Cycles;
+        [JsonPropertyName("isActive")] property bool IsActive;
+    };
+
+    public ref class ThreadsPayload
+    {
+    public:
+        [JsonPropertyName("data")] property List<ThreadInfo^>^ Data;
 
         [JsonPropertyName("_links")]
         [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
@@ -340,6 +564,8 @@ namespace x64dbgMCP {
             info->Links = gcnew Dictionary<String^, LinkRef^>();
             info->Links["self"] = Helpers::UriLink("x64dbg://session");
             info->Links["process"] = Helpers::UriLink("x64dbg://process");
+            info->Links["threads"] = Helpers::UriLink("x64dbg://threads");
+            info->Links["memory_maps"] = Helpers::UriLink("x64dbg://memory/maps");
             info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
 
             return MakeJson(info, "x64dbg://session");
@@ -400,8 +626,9 @@ namespace x64dbgMCP {
                     info->Path = Helpers::FromCStr(mod.path);
                 }
 
-                info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
                 info->Links["threads"] = Helpers::UriLink("x64dbg://threads");
+                info->Links["memory_maps"] = Helpers::UriLink("x64dbg://memory/maps");
+                info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
             }
 
             return MakeJson(info, "x64dbg://process");
@@ -412,7 +639,7 @@ namespace x64dbgMCP {
         static ResourceContents^ Modules()
         {
             auto payload = gcnew ModulesPayload();
-            payload->Data = gcnew List<ModuleEntry^>();
+            payload->Data = gcnew List<ModuleInfo^>();
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://modules");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
@@ -425,15 +652,7 @@ namespace x64dbgMCP {
                     duint mainBase = Script::Module::GetMainModuleBase();
                     for (int i = 0; i < list.Count(); i++)
                     {
-                        const auto& m = list[i];
-                        auto e = gcnew ModuleEntry();
-                        e->Name = Helpers::FromCStr(m.name);
-                        e->Path = Helpers::FromCStr(m.path);
-                        e->Base = Helpers::FormatAddress(m.base);
-                        e->Size = Helpers::FormatAddress(m.size);
-                        e->Entry = Helpers::FormatAddress(m.entry);
-                        e->IsMainModule = (m.base == mainBase);
-                        payload->Data->Add(e);
+                        payload->Data->Add(MakeModuleInfo(list[i], mainBase));
                     }
                 }
             }
@@ -441,7 +660,222 @@ namespace x64dbgMCP {
             return MakeJson(payload, "x64dbg://modules");
         }
 
+        [McpServerResource(UriTemplate = "x64dbg://modules/{name}", Name = "module", MimeType = "application/json")]
+        [Description("Information and navigation links for one loaded module.")]
+        static ResourceContents^ Module(
+            [Description("Loaded module name including extension (e.g. \"kernel32.dll\")")]
+            String^ name)
+        {
+            Script::Module::ModuleInfo nativeModule{};
+            RequireModule(name, &nativeModule);
+            auto info = MakeModuleInfo(nativeModule, Script::Module::GetMainModuleBase());
+            return MakeJson(info, ModuleUri(info->Name));
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://modules/{name}/sections", Name = "module-sections", MimeType = "application/json")]
+        [Description("Section table for one loaded module.")]
+        static ResourceContents^ ModuleSections(
+            [Description("Loaded module name including extension (e.g. \"kernel32.dll\")")]
+            String^ name)
+        {
+            Script::Module::ModuleInfo nativeModule{};
+            RequireModule(name, &nativeModule);
+            auto data = gcnew List<ModuleSection^>();
+            BridgeList<Script::Module::ModuleSectionInfo> list;
+            if (Script::Module::SectionListFromName(nativeModule.name, &list))
+            {
+                for (int i = 0; i < list.Count(); i++)
+                {
+                    auto item = gcnew ModuleSection();
+                    item->Name = Helpers::FromCStr(list[i].name);
+                    item->Address = Helpers::FormatAddress(list[i].addr);
+                    item->Size = Helpers::FormatAddress(list[i].size);
+                    data->Add(item);
+                }
+            }
+            return MakeJson(data, ModuleChildUri(Helpers::FromCStr(nativeModule.name), "sections"));
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://modules/{name}/exports", Name = "module-exports", MimeType = "application/json")]
+        [Description("Export table for one loaded module.")]
+        static ResourceContents^ ModuleExports(
+            [Description("Loaded module name including extension (e.g. \"kernel32.dll\")")]
+            String^ name)
+        {
+            Script::Module::ModuleInfo nativeModule{};
+            RequireModule(name, &nativeModule);
+            auto data = gcnew List<ModuleExport^>();
+            BridgeList<Script::Module::ModuleExport> list;
+            if (Script::Module::GetExports(&nativeModule, &list))
+            {
+                for (int i = 0; i < list.Count(); i++)
+                {
+                    auto item = gcnew ModuleExport();
+                    item->Name = Helpers::FromCStr(list[i].name);
+                    item->UndecoratedName = Helpers::FromCStr(list[i].undecoratedName);
+                    item->ForwardName = list[i].forwarded ? Helpers::FromCStrOrNull(list[i].forwardName) : nullptr;
+                    item->Ordinal = (int)list[i].ordinal;
+                    item->Rva = Helpers::FormatAddress(list[i].rva);
+                    item->Va = Helpers::FormatAddress(list[i].va);
+                    data->Add(item);
+                }
+            }
+            return MakeJson(data, ModuleChildUri(Helpers::FromCStr(nativeModule.name), "exports"));
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://modules/{name}/imports", Name = "module-imports", MimeType = "application/json")]
+        [Description("Import address table entries for one loaded module.")]
+        static ResourceContents^ ModuleImports(
+            [Description("Loaded module name including extension (e.g. \"kernel32.dll\")")]
+            String^ name)
+        {
+            Script::Module::ModuleInfo nativeModule{};
+            RequireModule(name, &nativeModule);
+            auto data = gcnew List<ModuleImport^>();
+            BridgeList<Script::Module::ModuleImport> list;
+            if (Script::Module::GetImports(&nativeModule, &list))
+            {
+                for (int i = 0; i < list.Count(); i++)
+                {
+                    auto item = gcnew ModuleImport();
+                    item->Name = Helpers::FromCStr(list[i].name);
+                    item->UndecoratedName = Helpers::FromCStr(list[i].undecoratedName);
+                    item->IatRva = Helpers::FormatAddress(list[i].iatRva);
+                    item->IatVa = Helpers::FormatAddress(list[i].iatVa);
+                    data->Add(item);
+                }
+            }
+            return MakeJson(data, ModuleChildUri(Helpers::FromCStr(nativeModule.name), "imports"));
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://memory/maps", Name = "memory-maps", MimeType = "application/json")]
+        [Description("Memory map for the debugged process with readable protection, state, and type values.")]
+        static ResourceContents^ MemoryMaps()
+        {
+            auto payload = gcnew MemoryMapsPayload();
+            payload->Data = gcnew List<MemoryRegion^>();
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+            payload->Links["self"] = Helpers::UriLink("x64dbg://memory/maps");
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+
+            if (DbgIsDebugging())
+            {
+                MEMMAP maps{};
+                if (DbgMemMap(&maps))
+                {
+                    for (int i = 0; i < maps.count; i++)
+                    {
+                        const auto& page = maps.page[i];
+                        auto item = gcnew MemoryRegion();
+                        item->Base = Helpers::FormatAddress((duint)page.mbi.BaseAddress);
+                        item->AllocationBase = Helpers::FormatAddress((duint)page.mbi.AllocationBase);
+                        item->Size = Helpers::FormatAddress((duint)page.mbi.RegionSize);
+                        item->AllocationProtect = Helpers::FormatMemoryProtection(page.mbi.AllocationProtect);
+                        item->Protect = Helpers::FormatMemoryProtection(page.mbi.Protect);
+                        item->State = Helpers::MemoryStateName(page.mbi.State);
+                        item->Type = Helpers::MemoryTypeName(page.mbi.Type);
+                        item->Info = Helpers::FromCStrOrNull(page.info);
+                        payload->Data->Add(item);
+                    }
+                }
+                if (maps.page)
+                    BridgeFree(maps.page);
+            }
+
+            return MakeJson(payload, "x64dbg://memory/maps");
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://threads", Name = "threads", MimeType = "application/json")]
+        [Description("Thread list for the debugged process with execution, scheduling, timing, and active-thread details.")]
+        static ResourceContents^ Threads()
+        {
+            auto payload = gcnew ThreadsPayload();
+            payload->Data = gcnew List<ThreadInfo^>();
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+            payload->Links["self"] = Helpers::UriLink("x64dbg://threads");
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+
+            if (DbgIsDebugging())
+            {
+                THREADLIST list{};
+                DbgGetThreadList(&list);
+                for (int i = 0; i < list.count; i++)
+                {
+                    const auto& nativeThread = list.list[i];
+                    auto item = gcnew ThreadInfo();
+					//item->Handle = Helpers::FormatAddress((duint)nativeThread.BasicInfo.ThreadHandle);
+                    item->ThreadNumber = nativeThread.BasicInfo.ThreadNumber;
+                    item->ThreadId = (int)nativeThread.BasicInfo.ThreadId;
+                    item->Name = Helpers::FromCStrOrNull(nativeThread.BasicInfo.threadName);
+                    item->Cip = Helpers::FormatAddress(nativeThread.ThreadCip);
+                    item->EntryPoint = Helpers::FormatAddress(nativeThread.BasicInfo.ThreadStartAddress);
+                    item->TebAddress = Helpers::FormatAddress(nativeThread.BasicInfo.ThreadLocalBase);
+                    item->SuspendCount = nativeThread.SuspendCount;
+                    item->Priority = Helpers::ThreadPriorityName(nativeThread.Priority);
+                    item->WaitReason = Helpers::ThreadWaitReasonName(nativeThread.WaitReason);
+                    item->LastError = nativeThread.LastError;
+                    item->UserTime = Helpers::FormatFileTimeDuration(nativeThread.UserTime);
+                    item->KernelTime = Helpers::FormatFileTimeDuration(nativeThread.KernelTime);
+                    item->CreationTime = Helpers::FormatFileTimeUtc(nativeThread.CreationTime);
+                    item->Cycles = nativeThread.Cycles;
+                    item->IsActive = list.CurrentThread == i;
+                    payload->Data->Add(item);
+                }
+                if (list.list)
+                    BridgeFree(list.list);
+            }
+
+            return MakeJson(payload, "x64dbg://threads");
+        }
+
     private:
+        static String^ ModuleUri(String^ name)
+        {
+            return "x64dbg://modules/" + Uri::EscapeDataString(name);
+        }
+
+        static String^ ModuleChildUri(String^ name, String^ child)
+        {
+            return ModuleUri(name) + "/" + child;
+        }
+
+        static void RequireModule(String^ name, Script::Module::ModuleInfo* module)
+        {
+            if (String::IsNullOrWhiteSpace(name))
+                throw gcnew NotSupportedException("Unknown module: " + name);
+            std::string nativeName = msclr::interop::marshal_as<std::string>(name);
+            if (!Script::Module::InfoFromName(nativeName.c_str(), module))
+                throw gcnew NotSupportedException("Unknown module: " + name);
+        }
+
+        static ModuleInfo^ MakeModuleInfo(const Script::Module::ModuleInfo& module, duint mainBase)
+        {
+            auto info = gcnew ModuleInfo();
+            info->Name = Helpers::FromCStr(module.name);
+            info->Path = Helpers::FromCStr(module.path);
+            info->Base = Helpers::FormatAddress(module.base);
+            info->Size = Helpers::FormatAddress(module.size);
+            info->Entry = Helpers::FormatAddress(module.entry);
+            info->SectionCount = module.sectionCount;
+            info->IsMainModule = module.base == mainBase;
+            info->Links = gcnew Dictionary<String^, LinkRef^>();
+            info->Links["self"] = Helpers::UriLink(ModuleUri(info->Name));
+            info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
+            info->Links["sections"] = Helpers::UriLink(ModuleChildUri(info->Name, "sections"));
+            info->Links["exports"] = Helpers::UriLink(ModuleChildUri(info->Name, "exports"));
+            info->Links["imports"] = Helpers::UriLink(ModuleChildUri(info->Name, "imports"));
+            if (module.entry != 0)
+            {
+                auto args = gcnew Dictionary<String^, Object^>();
+                args["addr"] = info->Entry;
+                args["count"] = 30;
+                info->Links["entry_disasm"] = Helpers::ToolLink("Disassemble", args);
+            }
+            return info;
+        }
+
         generic <typename T>
         static ResourceContents^ MakeJson(T value, String^ uri)
         {

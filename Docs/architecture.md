@@ -109,7 +109,7 @@ The MCP-visible surface is split into three forms based on access pattern. Detai
 
 | Form | When | Examples |
 |---|---|---|
-| **Resource** (`[McpServerResource]`) | Static-while-paused metadata, exploratory navigation | `x64dbg://modules`, `x64dbg://modules/{name}/sections`, `x64dbg://memory/map` |
+| **Resource** (`[McpServerResource]`) | Static-while-paused metadata, exploratory navigation | `x64dbg://modules`, `x64dbg://modules/{name}/sections`, `x64dbg://memory/maps` |
 | **Rich-param Tool** (`[McpServerTool]`) | Hot-path queries with bulk parameters | `Disassemble(addr, count)`, `MemoryRead(addr, size)`, `FindPattern(pattern, maxResults)` |
 | **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Symmetric CRUD families and debug control clusters | `DebugControl{init/run/pause/Step*}`, `Breakpoints{list/get/set/delete + batch}` |
 

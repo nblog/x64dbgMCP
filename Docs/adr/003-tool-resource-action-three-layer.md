@@ -34,7 +34,7 @@ The MCP specification distinguishes Resources (read-only, URI-addressable, **app
 
 For data that is **static while the debuggee is paused** and that an agent typically explores rather than acts on:
 
-- Modules list, per-module sections/exports/imports/symbols
+- Modules list, per-module sections/exports/imports
 - Memory map
 - Threads list
 - Project/session info

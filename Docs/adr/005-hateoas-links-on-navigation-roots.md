@@ -25,8 +25,8 @@ Putting `_links` on every disassembly entry would inflate response size by ~30% 
 ### Carry `_links`
 
 - `x64dbg://session` (and `GetProjectInfo` if exposed as tool) — points to modules/memory/threads
-- `x64dbg://modules` (top-level) and `x64dbg://modules/{name}` (per-module entry) — point to sections/exports/imports/symbols, and to `Disassemble` for the entry point
-- `x64dbg://memory/map` (top-level) — points to per-region details if expanded
+- `x64dbg://modules` (top-level) and `x64dbg://modules/{name}` (per-module entry) — point to sections/exports/imports, and to `Disassemble` for the entry point
+- `x64dbg://memory/maps` (top-level) — points to per-region details if expanded
 - `Breakpoints{action:"list"}`, `Threads{action:"list"}` — top-level list returns
 - Pagination wrappers (`Page` field is present) — the envelope-level `_links.next/prev/self` for paginated tools
 
