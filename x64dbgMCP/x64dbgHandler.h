@@ -420,13 +420,14 @@ namespace x64dbgMCP {
     {
     public:
         // [JsonPropertyName("handle")]         property String^ Handle;
+        [JsonPropertyName("elevated")]          property bool Elevated;
         [JsonPropertyName("processId")]         property int ProcessId;
         [JsonPropertyName("threadId")]          property int ThreadId;
         [JsonPropertyName("base")]              property String^ ImageBase;
         [JsonPropertyName("entry")]             property String^ EntryPoint;
         [JsonPropertyName("peb")]               property String^ PebAddress;
         [JsonPropertyName("teb")]               property String^ TebAddress;
-        [JsonPropertyName("kUserSharedData")]   property String^ KUserSharedData;
+        //[JsonPropertyName("kUserSharedData")]   property String^ KUserSharedData;
         [JsonPropertyName("path")]              property String^ Path;
 
         [JsonPropertyName("_links")]
@@ -576,13 +577,13 @@ namespace x64dbgMCP {
         static ResourceContents^ Process()
         {
             auto info = gcnew ProcessInfo();
+			info->Elevated = BridgeIsProcessElevated();
             info->ProcessId = 0;
             info->ThreadId = 0;
             info->ImageBase = nullptr;
 			info->EntryPoint = nullptr;
             info->PebAddress = nullptr;
             info->TebAddress = nullptr;
-            info->KUserSharedData = nullptr;
             info->Path = nullptr;
             info->Links = gcnew Dictionary<String^, LinkRef^>();
             info->Links["self"] = Helpers::UriLink("x64dbg://process");
@@ -613,9 +614,9 @@ namespace x64dbgMCP {
                 if (Script::Misc::ParseExpression("teb()", &value))
                     info->TebAddress = Helpers::FormatAddress(value);
 
-				// Get KUSER_SHARED_DATA address (always 0x7FFE0000 on Windows)
-				if (Script::Misc::ParseExpression("kusd()", &value))
-					info->KUserSharedData = Helpers::FormatAddress(value);
+				//// Get KUSER_SHARED_DATA address (always 0x7FFE0000 on Windows)
+				//if (Script::Misc::ParseExpression("kusd()", &value))
+				//	info->KUserSharedData = Helpers::FormatAddress(value);
 
                 // Get main module info for path and image base
                 Script::Module::ModuleInfo mod;

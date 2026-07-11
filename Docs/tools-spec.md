@@ -87,13 +87,14 @@ public ref class ProcessInfo
 {
 public:
     // property String^ Handle;          // native process handle (hex)
+    property bool Elevated;              // 
     property int ProcessId;              // PID (0 when not debugging)
     property int ThreadId;               // current thread ID (0 when not debugging)
     property String^ ImageBase;          // base address of the main module (hex)
     property String^ EntryPoint;         // (hex)
     property String^ PebAddress;         // PEB address (hex)
     property String^ TebAddress;         // TEB address for current thread (hex)
-    property String^ KUserSharedData;    // KUSER_SHARED_DATA address (hex)
+    // property String^ KUserSharedData;    // KUSER_SHARED_DATA address (hex)
     property String^ Path;               // full path to the executable
     property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory/maps, threads
 };
