@@ -96,6 +96,7 @@ public:
     property String^ TebAddress;         // TEB address for current thread (hex)
     // property String^ KUserSharedData;    // KUSER_SHARED_DATA address (hex)
     property String^ Path;               // full path to the executable
+    property String^ CommandLine;        // full Unicode command line; null when unavailable
     property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory/maps, threads
 };
 ```

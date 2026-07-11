@@ -2,8 +2,10 @@
 
 #include "plugintemplate/pluginmain.h"
 #include "plugintemplate/pluginsdk/lz4/lz4.h"
+#include <cstddef>
 #include <msclr/marshal.h>
 #include <msclr/marshal_cppstd.h>
+#include <winternl.h>
 #include <vector>
 
 namespace x64dbgMCP {
@@ -429,6 +431,7 @@ namespace x64dbgMCP {
         [JsonPropertyName("teb")]               property String^ TebAddress;
         //[JsonPropertyName("kUserSharedData")]   property String^ KUserSharedData;
         [JsonPropertyName("path")]              property String^ Path;
+        [JsonPropertyName("commandLine")]       property String^ CommandLine;
 
         [JsonPropertyName("_links")]
         [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
@@ -573,7 +576,7 @@ namespace x64dbgMCP {
         }
 
         [McpServerResource(UriTemplate = "x64dbg://process", Name = "process", MimeType = "application/json")]
-        [Description("Information about the currently debugged process: PID, path, handle, image base, thread info, and system structures.")]
+        [Description("Information about the currently debugged process: PID, path, command line, image base, thread info, and system structures.")]
         static ResourceContents^ Process()
         {
             auto info = gcnew ProcessInfo();
@@ -585,6 +588,7 @@ namespace x64dbgMCP {
             info->PebAddress = nullptr;
             info->TebAddress = nullptr;
             info->Path = nullptr;
+            info->CommandLine = nullptr;
             info->Links = gcnew Dictionary<String^, LinkRef^>();
             info->Links["self"] = Helpers::UriLink("x64dbg://process");
             info->Links["session"] = Helpers::UriLink("x64dbg://session");
@@ -608,7 +612,51 @@ namespace x64dbgMCP {
 
                 // Get PEB address
 				if (Script::Misc::ParseExpression("peb()", &value))
+				{
 					info->PebAddress = Helpers::FormatAddress(value);
+
+#if defined(_WIN64)
+                    static_assert(offsetof(PEB, ProcessParameters) == 0x20);
+                    static_assert(offsetof(RTL_USER_PROCESS_PARAMETERS, CommandLine) == 0x70);
+#else
+                    static_assert(offsetof(PEB, ProcessParameters) == 0x10);
+                    static_assert(offsetof(RTL_USER_PROCESS_PARAMETERS, CommandLine) == 0x40);
+#endif
+
+                    duint processParametersAddress = 0;
+                    if (DbgMemRead(
+                            value + offsetof(PEB, ProcessParameters),
+                            &processParametersAddress,
+                            sizeof(processParametersAddress)) &&
+                        processParametersAddress != 0)
+                    {
+                        UNICODE_STRING commandLine{};
+                        if (DbgMemRead(
+                                processParametersAddress + offsetof(RTL_USER_PROCESS_PARAMETERS, CommandLine),
+                                &commandLine,
+                                sizeof(commandLine)))
+                        {
+                            if (commandLine.Length == 0)
+                            {
+                                info->CommandLine = String::Empty;
+                            }
+                            else if (commandLine.Length <= commandLine.MaximumLength &&
+                                     commandLine.Buffer != nullptr &&
+                                     commandLine.Length % sizeof(wchar_t) == 0)
+                            {
+                                int characterCount = commandLine.Length / sizeof(wchar_t);
+                                std::vector<wchar_t> buffer(characterCount);
+                                if (DbgMemRead(
+                                        (duint)commandLine.Buffer,
+                                        buffer.data(),
+                                        commandLine.Length))
+                                {
+                                    info->CommandLine = gcnew String(buffer.data(), 0, characterCount);
+                                }
+                            }
+                        }
+                    }
+				}
 
                 // Get TEB address for current thread
                 if (Script::Misc::ParseExpression("teb()", &value))
