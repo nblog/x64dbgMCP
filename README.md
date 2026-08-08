@@ -15,6 +15,9 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 | `x64dbg://threads` | 线程列表 |
 | `x64dbg://memory/maps` | 内存映射 |
 | `x64dbg://modules` | 已加载模块列表 |
+| `x64dbg://windows` | 调试进程窗口列表 |
+| `x64dbg://handles` | 调试进程句柄列表 |
+| `x64dbg://tcpconnections` | 调试进程 TCP 连接列表 |
 | `x64dbg://modules/{name}` | 单模块基本信息（基址、大小、入口） |
 | `x64dbg://modules/{name}/sections` | 模块节表 |
 | `x64dbg://modules/{name}/exports` | 导出表 |

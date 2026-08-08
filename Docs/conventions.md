@@ -118,6 +118,9 @@ Navigation roots (carry `_links`):
 - `GetProjectInfo` / `x64dbg://session`
 - `x64dbg://modules` / `GetMainModuleInfo`
 - `x64dbg://memory/maps`
+- `x64dbg://windows`
+- `x64dbg://handles`
+- `x64dbg://tcpconnections`
 - Top-level `Breakpoints{action:"list"}`, `Threads{action:"list"}`
 
 Leaves (no `_links`):

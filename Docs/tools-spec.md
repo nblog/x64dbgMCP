@@ -74,7 +74,7 @@ public:
     property String^ X64dbgDirectory;   // BridgeUserDirectory()
     property bool IsDebugging;
     property bool IsRunning;
-    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/maps, threads
+    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/maps, threads, windows, handles, tcpconnections
 };
 ```
 
@@ -97,7 +97,7 @@ public:
     // property String^ KUserSharedData;    // KUSER_SHARED_DATA address (hex)
     property String^ Path;               // full path to the executable
     property String^ CommandLine;        // full Unicode command line; null when unavailable
-    property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory/maps, threads
+    property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory/maps, threads, windows, handles, tcpconnections
 };
 ```
 
@@ -255,6 +255,95 @@ public:
 `CreationTime` is an absolute timestamp. `UserTime` and `KernelTime` are cumulative CPU
 durations, not timestamps; all three are serialized as strings, while the two durations
 use the same representation as x64dbg's Threads view.
+
+### `x64dbg://windows` 🟢
+
+List of windows returned by x64dbg's `DbgFunctions()->EnumWindows`. `Data` is empty when
+there is no active debug session or the underlying enumeration fails. Pointer-like fields
+are hexadecimal strings. `UserData` is read from the window handle with
+`GetWindowLongPtrW(hwnd, GWLP_USERDATA)` and is returned as a hexadecimal string; `0x0`
+is the API's ambiguous zero result: the stored value may be zero, or the call may have
+failed. This resource intentionally exposes only the raw value and no separate error field.
+
+```cpp
+public ref class WindowInfo
+{
+public:
+    property String^ Procedure;       // window procedure address, hex
+    property String^ Handle;           // HWND, hex
+    property String^ Title;
+    property String^ ClassName;
+    property unsigned int ThreadId;
+    property String^ Style;            // hex
+    property String^ StyleEx;          // hex
+    property String^ Parent;           // parent HWND, hex
+    property int Left;
+    property int Top;
+    property int Width;
+    property int Height;
+    property bool Enabled;
+    property String^ UserData;         // GWLP_USERDATA, hex
+};
+
+public ref class WindowsPayload
+{
+public:
+    property List<WindowInfo^>^ Data;
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
+};
+```
+
+### `x64dbg://handles` 🟢
+
+List of handles returned by x64dbg's `DbgFunctions()->EnumHandles`, with the display name
+and type resolved through `DbgFunctions()->GetHandleName`. `Data` is empty when there is no
+active debug session or the underlying enumeration fails.
+
+```cpp
+public ref class HandleInfo
+{
+public:
+    property String^ Type;
+    property String^ TypeNumber;       // hex
+    property String^ Handle;           // hex
+    property String^ GrantedAccess;    // hex
+    property String^ Name;
+};
+
+public ref class HandlesPayload
+{
+public:
+    property List<HandleInfo^>^ Data;
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
+};
+```
+
+### `x64dbg://tcpconnections` 🟢
+
+List of TCP connections returned by x64dbg's `DbgFunctions()->EnumTcpConnections`.
+`Data` is empty when there is no active debug session or the underlying enumeration fails.
+Addresses are display strings supplied by x64dbg; ports and the numeric state are returned
+as integers, while `StateText` mirrors x64dbg's Handles view.
+
+```cpp
+public ref class TcpConnectionInfo
+{
+public:
+    property String^ RemoteAddress;
+    property unsigned short RemotePort;
+    property String^ LocalAddress;
+    property unsigned short LocalPort;
+    property String^ StateText;
+    property unsigned int State;
+};
+
+public ref class TcpConnectionsPayload
+{
+public:
+    property List<TcpConnectionInfo^>^ Data;
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
+};
+```
 
 ---
 

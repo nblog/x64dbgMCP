@@ -89,6 +89,7 @@ When implementing a `DebugControl` action that maps onto a raw command, consult 
 
 - [x64dbg/x64dbg](https://github.com/x64dbg/x64dbg) — main repository
 - [x64dbg pluginsdk source](https://github.com/x64dbg/x64dbg/tree/development/src/dbg/pluginsdk) — authoritative source for pluginsdk headers (compare against vendored copies during SDK upgrades)
+- [HandlesView.cpp](https://github.com/x64dbg/x64dbg/blob/development/src/gui/Src/Gui/HandlesView.cpp) — x64dbg GUI's handle, window, and TCP-connection enumeration and display fields
 
 ### Bundled compression (lz4)
 

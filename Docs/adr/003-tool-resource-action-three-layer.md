@@ -66,7 +66,7 @@ Benefits: tool count compression, symmetric ops live next to each other, batch v
 
 ### Estimated surface
 
-~7 resources + ~7 rich-param tools + ~9 mega-tools ≈ **23 entries** (PoC: 50+). Each mega-tool's schema is larger than a single-purpose tool's, but the net token cost is lower because we collapsed many siblings.
+~10 resources + ~7 rich-param tools + ~9 mega-tools ≈ **26 entries** (PoC: 50+). Each mega-tool's schema is larger than a single-purpose tool's, but the net token cost is lower because we collapsed many siblings.
 
 ## Consequences
 

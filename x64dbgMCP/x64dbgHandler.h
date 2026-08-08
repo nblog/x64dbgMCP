@@ -418,6 +418,76 @@ namespace x64dbgMCP {
         property Dictionary<String^, LinkRef^>^ Links;
     };
 
+    public ref class WindowInfo
+    {
+    public:
+        [JsonPropertyName("procedure")] property String^ Procedure;
+        [JsonPropertyName("handle")]    property String^ Handle;
+        [JsonPropertyName("title")]     property String^ Title;
+        [JsonPropertyName("className")] property String^ ClassName;
+        [JsonPropertyName("threadId")]  property UInt32 ThreadId;
+        [JsonPropertyName("style")]     property String^ Style;
+        [JsonPropertyName("styleEx")]   property String^ StyleEx;
+        [JsonPropertyName("parent")]    property String^ Parent;
+        [JsonPropertyName("left")]      property int Left;
+        [JsonPropertyName("top")]       property int Top;
+        [JsonPropertyName("width")]     property int Width;
+        [JsonPropertyName("height")]    property int Height;
+        [JsonPropertyName("enabled")]   property bool Enabled;
+        [JsonPropertyName("userData")]  property String^ UserData;
+    };
+
+    public ref class WindowsPayload
+    {
+    public:
+        [JsonPropertyName("data")] property List<WindowInfo^>^ Data;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
+    public ref class HandleInfo
+    {
+    public:
+        [JsonPropertyName("type")]          property String^ Type;
+        [JsonPropertyName("typeNumber")]    property String^ TypeNumber;
+        [JsonPropertyName("handle")]       property String^ Handle;
+        [JsonPropertyName("grantedAccess")] property String^ GrantedAccess;
+        [JsonPropertyName("name")]         property String^ Name;
+    };
+
+    public ref class HandlesPayload
+    {
+    public:
+        [JsonPropertyName("data")] property List<HandleInfo^>^ Data;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
+    public ref class TcpConnectionInfo
+    {
+    public:
+        [JsonPropertyName("remoteAddress")] property String^ RemoteAddress;
+        [JsonPropertyName("remotePort")]    property UInt16 RemotePort;
+        [JsonPropertyName("localAddress")]  property String^ LocalAddress;
+        [JsonPropertyName("localPort")]     property UInt16 LocalPort;
+        [JsonPropertyName("stateText")]     property String^ StateText;
+        [JsonPropertyName("state")]        property UInt32 State;
+    };
+
+    public ref class TcpConnectionsPayload
+    {
+    public:
+        [JsonPropertyName("data")] property List<TcpConnectionInfo^>^ Data;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
     public ref class ProcessInfo
     {
     public:
@@ -571,6 +641,9 @@ namespace x64dbgMCP {
             info->Links["threads"] = Helpers::UriLink("x64dbg://threads");
             info->Links["memory_maps"] = Helpers::UriLink("x64dbg://memory/maps");
             info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
+            info->Links["windows"] = Helpers::UriLink("x64dbg://windows");
+            info->Links["handles"] = Helpers::UriLink("x64dbg://handles");
+            info->Links["tcpconnections"] = Helpers::UriLink("x64dbg://tcpconnections");
 
             return MakeJson(info, "x64dbg://session");
         }
@@ -678,6 +751,9 @@ namespace x64dbgMCP {
                 info->Links["threads"] = Helpers::UriLink("x64dbg://threads");
                 info->Links["memory_maps"] = Helpers::UriLink("x64dbg://memory/maps");
                 info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
+                info->Links["windows"] = Helpers::UriLink("x64dbg://windows");
+                info->Links["handles"] = Helpers::UriLink("x64dbg://handles");
+                info->Links["tcpconnections"] = Helpers::UriLink("x64dbg://tcpconnections");
             }
 
             return MakeJson(info, "x64dbg://process");
@@ -877,6 +953,126 @@ namespace x64dbgMCP {
             }
 
             return MakeJson(payload, "x64dbg://threads");
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://windows", Name = "windows", MimeType = "application/json")]
+        [Description("Window list for the debugged process, including window metadata and GWLP_USERDATA values.")]
+        static ResourceContents^ Windows()
+        {
+            auto payload = gcnew WindowsPayload();
+            payload->Data = gcnew List<WindowInfo^>();
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+            payload->Links["self"] = Helpers::UriLink("x64dbg://windows");
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+
+            if (DbgIsDebugging())
+            {
+                BridgeList<WINDOW_INFO> windows;
+                if (DbgFunctions()->EnumWindows(&windows))
+                {
+                    for (int i = 0; i < windows.Count(); i++)
+                    {
+                        const auto& nativeWindow = windows[i];
+                        auto item = gcnew WindowInfo();
+                        item->Procedure = Helpers::FormatAddress(nativeWindow.wndProc);
+                        item->Handle = Helpers::FormatAddress(nativeWindow.handle);
+                        item->Title = Helpers::FromCStr(nativeWindow.windowTitle);
+                        item->ClassName = Helpers::FromCStr(nativeWindow.windowClass);
+                        item->ThreadId = nativeWindow.threadId;
+                        item->Style = Helpers::FormatAddress(nativeWindow.style);
+                        item->StyleEx = Helpers::FormatAddress(nativeWindow.styleEx);
+                        item->Parent = Helpers::FormatAddress(nativeWindow.parent);
+                        item->Left = nativeWindow.position.left;
+                        item->Top = nativeWindow.position.top;
+                        item->Width = nativeWindow.position.right - nativeWindow.position.left;
+                        item->Height = nativeWindow.position.bottom - nativeWindow.position.top;
+                        item->Enabled = nativeWindow.enabled != FALSE;
+                        item->UserData = Helpers::FormatAddress((duint)::GetWindowLongPtrW(
+                            (HWND)(ULONG_PTR)nativeWindow.handle,
+                            GWLP_USERDATA));
+                        payload->Data->Add(item);
+                    }
+                }
+            }
+
+            return MakeJson(payload, "x64dbg://windows");
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://handles", Name = "handles", MimeType = "application/json")]
+        [Description("Handle list for the debugged process, including type, access, and resolved object name.")]
+        static ResourceContents^ Handles()
+        {
+            auto payload = gcnew HandlesPayload();
+            payload->Data = gcnew List<HandleInfo^>();
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+            payload->Links["self"] = Helpers::UriLink("x64dbg://handles");
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+
+            if (DbgIsDebugging())
+            {
+                BridgeList<HANDLEINFO> handles;
+                if (DbgFunctions()->EnumHandles(&handles))
+                {
+                    for (int i = 0; i < handles.Count(); i++)
+                    {
+                        const auto& nativeHandle = handles[i];
+                        char name[MAX_STRING_SIZE] = "";
+                        char typeName[MAX_STRING_SIZE] = "";
+                        DbgFunctions()->GetHandleName(
+                            nativeHandle.Handle,
+                            name,
+                            sizeof(name),
+                            typeName,
+                            sizeof(typeName));
+
+                        auto item = gcnew HandleInfo();
+                        item->Type = Helpers::FromCStr(typeName);
+                        item->TypeNumber = Helpers::FormatAddress(nativeHandle.TypeNumber);
+                        item->Handle = Helpers::FormatAddress(nativeHandle.Handle);
+                        item->GrantedAccess = Helpers::FormatAddress(nativeHandle.GrantedAccess);
+                        item->Name = Helpers::FromCStr(name);
+                        payload->Data->Add(item);
+                    }
+                }
+            }
+
+            return MakeJson(payload, "x64dbg://handles");
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://tcpconnections", Name = "tcpconnections", MimeType = "application/json")]
+        [Description("TCP connection list for the debugged process, including local and remote endpoints and state.")]
+        static ResourceContents^ TcpConnections()
+        {
+            auto payload = gcnew TcpConnectionsPayload();
+            payload->Data = gcnew List<TcpConnectionInfo^>();
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+            payload->Links["self"] = Helpers::UriLink("x64dbg://tcpconnections");
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+
+            if (DbgIsDebugging())
+            {
+                BridgeList<TCPCONNECTIONINFO> connections;
+                if (DbgFunctions()->EnumTcpConnections(&connections))
+                {
+                    for (int i = 0; i < connections.Count(); i++)
+                    {
+                        const auto& nativeConnection = connections[i];
+                        auto item = gcnew TcpConnectionInfo();
+                        item->RemoteAddress = Helpers::FromCStr(nativeConnection.RemoteAddress);
+                        item->RemotePort = nativeConnection.RemotePort;
+                        item->LocalAddress = Helpers::FromCStr(nativeConnection.LocalAddress);
+                        item->LocalPort = nativeConnection.LocalPort;
+                        item->StateText = Helpers::FromCStr(nativeConnection.StateText);
+                        item->State = nativeConnection.State;
+                        payload->Data->Add(item);
+                    }
+                }
+            }
+
+            return MakeJson(payload, "x64dbg://tcpconnections");
         }
 
     private:
