@@ -1,50 +1,52 @@
+[中文版](README.zh-CN.md) | English
+
 # x64dbgMCP
 
-x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP HTTP server。所有调试器原语——反汇编、内存读写、断点、寄存器、符号/标签/注释、调用栈——都以 MCP Tool / Resource 的形式直接对 Agent 可用，无需中间脚本桥接。
+x64dbgMCP is a C++/CLI x64dbg plugin that starts an embedded MCP server. All debugger primitives, disassembly, memory read/write, breakpoints, registers, symbols/labels/comments, call stacks, are exposed directly to agents as MCP Tools / Resources.
 
 ---
 
 ### Resources — `x64dbg://...`
 
-只读快照，适合探索式导航。Agent 可以用 URI 直接寻址，不需要先调 list 再调 get。
+Suited for exploratory navigation. Agents can address these directly by URI.
 
-| URI | 用途 |
+| URI | Purpose |
 |---|---|
-| `x64dbg://session` | 会话快照（平台、是否在调试、是否运行、x64dbg 目录），导航根 |
-| `x64dbg://logging` | 日志窗口信息 |
-| `x64dbg://process` | 当前进程信息 |
-| `x64dbg://threads` | 线程列表 |
-| `x64dbg://memory/maps` | 内存映射 |
-| `x64dbg://modules` | 加载模块列表 |
-| `x64dbg://windows` | 调试进程窗口列表 |
-| `x64dbg://handles` | 调试进程句柄列表 |
-| `x64dbg://tcpconnections` | 调试进程 TCP 连接列表 |
-| `x64dbg://modules/{name}` | 单模块基本信息（基址、大小、入口） |
-| `x64dbg://modules/{name}/sections` | 模块节表 |
-| `x64dbg://modules/{name}/exports` | 导出表 |
-| `x64dbg://modules/{name}/imports` | 导入表 |
-| `x64dbg://functions` | 函数信息 |
-| `x64dbg://symbols` | 符号信息 |
-| `x64dbg://labels` | 标签信息 |
-| `x64dbg://comments` | 注释信息 |
-| `x64dbg://bookmarks` | 书签信息 |
-| `x64dbg://breakpoints` | 断点信息 |
+| `x64dbg://session` | Session snapshot (platform, debugging state, running state, x64dbg directory), navigation root |
+| `x64dbg://logging` | Log window info |
+| `x64dbg://process` | Current process info |
+| `x64dbg://threads` | Thread list |
+| `x64dbg://memory/maps` | Memory map |
+| `x64dbg://modules` | Loaded module list |
+| `x64dbg://windows` | Debuggee window list |
+| `x64dbg://handles` | Debuggee handle list |
+| `x64dbg://tcpconnections` | Debuggee TCP connection list |
+| `x64dbg://modules/{name}` | Single module basic info (base address, size, entry point) |
+| `x64dbg://modules/{name}/sections` | Module section table |
+| `x64dbg://modules/{name}/exports` | Export table |
+| `x64dbg://modules/{name}/imports` | Import table |
+| `x64dbg://functions` | Function info |
+| `x64dbg://symbols` | Symbol info |
+| `x64dbg://labels` | Label info |
+| `x64dbg://comments` | Comment info |
+| `x64dbg://bookmarks` | Bookmark info |
+| `x64dbg://breakpoints` | Breakpoint info |
 
-### Rich-param Tools — 热路径查询
+### Rich-param Tools — Hot Path Queries
 
-参数较多但语义单一，按工具维度暴露。所有地址参数接受 x64dbg 表达式（`rax`、`kernel32:CreateFileW`、`cip+0x10`、`peb()`），不必预先解析。
+Tools with many parameters but a single semantic purpose, exposed per tool. All address parameters accept x64dbg expressions (`rax`, `kernel32:CreateFileW`, `cip+0x10`, `peb()`) and don't need to be pre-resolved.
 
-| Tool | 作用 |
+| Tool | Purpose |
 |---|---|
-| `Disassemble(addr, count, withBytes?)` | 反汇编 N 条指令，可选返回原始字节 |
-| `MemoryRead(addr, size, compress?)` | 读内存，base64 返回；`compress=true` 用 lz4 压缩以放大单次返回窗口 |
-| `ParseExpression(expr)` | 把任意表达式解析为地址 + 所属模块/节 |
+| `Disassemble(addr, count, withBytes?)` | Disassemble N instructions, optionally returning raw bytes |
+| `MemoryRead(addr, size, compress?)` | Read memory, returned as base64; `compress=true` uses lz4 to widen the effective single-call window |
+| `ParseExpression(expr)` | Resolve any expression to an address plus its owning module/section |
 
-### Action-mega Tools — CRUD 家族 / 控制簇
+### Action-mega Tools — CRUD Families / Control Clusters
 
-形态对称的家族用 `action` 字段分派，避免工具数量爆炸。Resource 负责批量只读快照，Tool (`enableDebugging=true`) 负责单条读取与调整。
+Symmetric families dispatch on an `action` field to avoid a proliferation of tools. Resources handle bulk read-only snapshots, while tools (`enableDebugging=true`) handle single-item reads and adjustments.
 
-分析与标注（始终注册）：
+Analysis and annotation (always registered):
 
 - `Symbols { get }`
 - `Functions { get, set, delete }`
@@ -53,46 +55,44 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 - `Bookmarks { get, set, delete }`
 - `Xrefs { list_at, add, count_at, type_at }`
 
-仅在 `enableDebugging=true` 时加载，避免默认 tool schema 膨胀：
+Loaded only when `enableDebugging=true`, to avoid bloating the default tool schema:
 
+- `Logging { clear, put }` — Clear the log window or append a line
 - `DebugControl { init, run, stop, pause, StepInto, StepOver, StepOut, run_command }`
-- `Registers { get, set, dump }` — 名称由 x64dbg 解析，覆盖任意寄存器/标志
-- `Breakpoints { get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch }`
-- `Memory { write, alloc, free }`
-- `Threads { get, set_name, set_active, suspend, resume, create_at }`
+- `Registers { get, set, dump }` — Names are resolved by x64dbg, covering any register/flag
 - `Assemble(addr, instruction, fillNops?)`
-- `Logging { clear, put }` — 清空日志窗口或用 `_plugin_logputs` 追加一行
+- `Memory { read, write, alloc, free }`
+- `Threads { get, set_name, set_active, suspend, resume, create_at }`
+- `Breakpoints { get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch }`
 
 ---
 
 ## Quick Start
 
-### 1. 装载插件
+### 1. Load the Plugin
 
-把构建产物放进 x64dbg 的 `plugins/` 目录：
+Place the build artifacts into x64dbg's `plugins/` directory:
 
-- 32 位：`x64dbgMCP.dp32` → `x32dbg/plugins/`
-- 64 位：`x64dbgMCP.dp64` → `x64dbg/plugins/`
+- 32-bit: `x64dbgMCP.dp32` → `x32dbg/plugins/`
+- 64-bit: `x64dbgMCP.dp64` → `x64dbg/plugins/`
 
-启动 x64dbg，或在已运行的实例里 `Plugins → Load`。命令 `mcp.start` 应已注册。
-
-启动服务：
+Start the server:
 
 ```
-mcp.start                    ; 默认 port=3001, host=localhost
-mcp.start 3001               ; 指定端口
-mcp.start 3001,0.0.0.0       ; 暴露给非 loopback 客户端 (host=0.0.0.0)
+mcp.start                    ; default port=3001, host=localhost
+mcp.start 3001               ; specify a port
+mcp.start 3001,0.0.0.0       ; expose to non-loopback clients (host=0.0.0.0)
 ```
 
-### 2. 接到 MCP 客户端
+### 2. Connect an MCP Client
 
-Claude Code 配置示例：
+Claude Code configuration example:
 
 ```bash
 claude mcp add --transport http x64dbg http://localhost:3001
 ```
 
-或在客户端配置文件中：
+Or in your client's config file:
 
 ```json
 {
@@ -104,10 +104,10 @@ claude mcp add --transport http x64dbg http://localhost:3001
 }
 ```
 
-连上后让 Agent 试一句：「读 `x64dbg://session`，告诉我现在是不是在调试」——能拿到 `isDebugging` 字段就跑通了。
+Once connected, ask the agent to try: "Read `x64dbg://session` and tell me if it's currently debugging", if it gets an `isDebugging` field back, you're set.
 
 ---
 
 ## License
 
-基于 x64dbg pluginsdk，遵循 x64dbg 项目的许可条款。
+Built on the x64dbg pluginsdk, and follows the x64dbg project's license terms.
