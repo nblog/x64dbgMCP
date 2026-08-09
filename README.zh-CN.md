@@ -38,9 +38,9 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 
 | Tool | 作用 |
 |---|---|
+| `ParseExpression(expr)` | 把任意表达式解析为地址 + 所属模块/节 |
 | `Disassemble(addr, count, withBytes?)` | 反汇编 N 条指令，可选返回原始字节 |
 | `MemoryRead(addr, size, compress?)` | 读内存，base64 返回；`compress=true` 用 lz4 压缩以放大单次返回窗口 |
-| `ParseExpression(expr)` | 把任意表达式解析为地址 + 所属模块/节 |
 
 ### Action-mega Tools — CRUD 家族 / 控制簇
 

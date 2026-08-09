@@ -38,9 +38,9 @@ Tools with many parameters but a single semantic purpose, exposed per tool. All 
 
 | Tool | Purpose |
 |---|---|
+| `ParseExpression(expr)` | Resolve any expression to an address plus its owning module/section |
 | `Disassemble(addr, count, withBytes?)` | Disassemble N instructions, optionally returning raw bytes |
 | `MemoryRead(addr, size, compress?)` | Read memory, returned as base64; `compress=true` uses lz4 to widen the effective single-call window |
-| `ParseExpression(expr)` | Resolve any expression to an address plus its owning module/section |
 
 ### Action-mega Tools — CRUD Families / Control Clusters
 
