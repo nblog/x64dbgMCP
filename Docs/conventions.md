@@ -11,14 +11,16 @@ This document encodes the **non-negotiable rules** for shaping MCP tools, resour
 | Element | Rule | Example |
 |---|---|---|
 | Tool method (managed) | `PascalCase`, verb-first | `Disassemble`, `GetMemoryMap`, `FindPattern` |
-| Tool `Name` (MCP-visible) | Defaults to method name; override only if the method name conflicts or hurts discoverability | — |
-| Action-mega tool | Plural noun for the family; the `action` parameter is `snake_case` | `Breakpoints{action:"get"\|"set"\|"delete"\|"set_batch"}` |
+| Tool `Name` (MCP-visible) | `snake_case`; MCP C# SDK 2.1.0 derives this from the managed method when `Name` is unset | `Disassemble` → `disassemble`, `MemoryRead` → `memory_read` |
+| Action-mega tool | Lowercase family/control noun; the `action` parameter normally uses `snake_case` | `breakpoints{action:"get"\|"set"\|"delete"\|"set_batch"}` |
 | Resource URI scheme | `x64dbg://` (single scheme for the whole project) | — |
 | Resource URI template | `lowercase`, hyphenated, hierarchical, plural collections | `x64dbg://modules`, `x64dbg://modules/{name}/sections` |
 | Helper class | `Helpers`, `internal` access only | — |
 | Result class | `<Domain><Verb>Result` or `<Domain>Info` | `DisassembleResult`, `ModuleInfo`, `BreakpointEntry` |
 
-Action names: prefer `get`, `set`, `delete`, `set_batch`, `delete_batch`. A bounded relationship query may use a localized name such as `list_at`; bulk collection scans belong to Resources. For control clusters use the natural verb: `init`, `stop`, `run`, `pause`, `StepInto`, `StepOver`, `StepOut`.
+The wire name returned by `tools/list` is authoritative anywhere a Tool is referenced, including `LinkRef.Tool`; never put the managed method name in a wire-level link. The SDK's current derivation is documented in [`AIFunctionMcpServerTool.DeriveName`](references.md#mcp-c-sdk), but explicit `Name` remains available when a future method name cannot produce the contracted wire name.
+
+Action names: prefer `get`, `set`, `delete`, `set_batch`, `delete_batch`. A bounded relationship query may use a localized name such as `list_at`; bulk collection scans belong to Resources. For control clusters use the natural verb: `init`, `stop`, `run`, `pause`. `StepInto`, `StepOver`, and `StepOut` deliberately preserve the native x64dbg command spelling and are the only current non-`snake_case` action names.
 
 ---
 
@@ -61,7 +63,7 @@ Do **not** return raw `UInt64` / `duint` for address fields. The string form sur
 
 ## 4. Result Envelope
 
-All tool returns are wrapped in a typed result class derived from `McpResult` (defined in [tools-spec.md](tools-spec.md#返回-envelope)):
+All tool returns are wrapped in a typed result class derived from `McpResult` (defined in [tools-spec.md](tools-spec.md#1-result-envelope)):
 
 ```
 McpResult
@@ -81,7 +83,7 @@ public:
 };
 ```
 
-Tools return the envelope object directly; the MCP framework serialises it to JSON via `System.Text.Json`. See [adr/004-typed-result-with-envelope.md](adr/004-typed-result-with-envelope.md).
+Tools return the envelope object directly; the MCP framework serialises it to JSON via `System.Text.Json`. With the current `[McpServerTool]` annotations, SDK 2.1.0 returns that JSON in Tool text content and does not publish an `outputSchema`; typed classes still constrain the implementation and documented wire shape. Enabling `UseStructuredContent` is a separate protocol-surface change that requires contract and live-client validation. See [adr/004-typed-result-with-envelope.md](adr/004-typed-result-with-envelope.md).
 
 Resources are different: they return raw text or `ResourceContents` per MCP spec; the envelope rule does not apply to them.
 
@@ -93,7 +95,7 @@ Resources are different: they return raw text or `ResourceContents` per MCP spec
 |---|---|---|
 | **Caller error** (bad arg, unknown name, out-of-range) | Inside the tool method, before any side effect | Construct envelope with `Success=false`, `Error.Code="invalid_argument"`, descriptive `Error.Message`. Return the envelope; do **not** `throw`. |
 | **Operational error** (debugger not attached, target not paused, x64dbg API returned false) | After validation, during execution | Same envelope shape with appropriate `Error.Code` (see table below). |
-| **Programmer error** (null deref, unexpected state) | Anywhere | Let it propagate; the MCP framework converts unhandled exceptions to JSON-RPC `internal_error`. Do not swallow. |
+| **Programmer error** (null deref, unexpected state) | Anywhere | Let it propagate; MCP C# SDK 2.1.0 returns a failed Tool result with a generic message for non-`McpException` exceptions. Do not swallow or disguise it as a successful envelope. |
 
 `Error.Code` taxonomy (closed set):
 
@@ -105,7 +107,7 @@ Resources are different: they return raw text or `ResourceContents` per MCP spec
 - `x64dbg_failed` — underlying SDK call returned failure with no further info
 - `internal` — fallback for genuinely unexpected conditions (prefer `throw` instead)
 
-> Rationale for envelope-over-throw on caller/operational errors: see [adr/004-typed-result-with-envelope.md](adr/004-typed-result-with-envelope.md). Unhandled exceptions remain reserved for true bugs.
+> Rationale for envelope-over-throw on caller/operational errors: see [adr/004-typed-result-with-envelope.md](adr/004-typed-result-with-envelope.md). Unhandled exceptions remain reserved for true bugs; the envelope code `internal` is only a fallback for a detected unexpected failure that the implementation can still report safely.
 
 ---
 
@@ -115,8 +117,9 @@ Resources are different: they return raw text or `ResourceContents` per MCP spec
 
 Navigation roots (carry `_links`):
 
-- `GetProjectInfo` / `x64dbg://session`
-- `x64dbg://modules` / `GetMainModuleInfo`
+- `x64dbg://session`
+- `x64dbg://process`
+- `x64dbg://modules` and `x64dbg://modules/{name}`
 - `x64dbg://memory/maps`
 - `x64dbg://windows`
 - `x64dbg://handles`
@@ -137,7 +140,7 @@ Link shape:
     "sections": { "uri": "x64dbg://modules/target.exe/sections" },
     "imports":  { "uri": "x64dbg://modules/target.exe/imports" },
     "entry_disasm": {
-      "tool": "Disassemble",
+      "tool": "disassemble",
       "args": { "addr": "0x140001000", "count": 30 }
     }
   }
@@ -167,11 +170,11 @@ The response includes:
 }
 ```
 
-Hot-path single-target tools (`Disassemble`, `MemoryRead`, `FindPattern`) use bulk parameters instead of pagination:
+Hot-path single-target tools (`disassemble`, `memory_read`, `find_pattern`) use bulk parameters instead of pagination:
 
-- `Disassemble(addr, count)` — `count` ≤ 200 (per-call ceiling)
-- `MemoryRead(addr, size)` — `size` ≤ 64 KiB
-- `FindPattern(pattern, maxResults)` — `maxResults` ≤ 256
+- `disassemble(addr, count)` — `count` ≤ 200 (per-call ceiling)
+- `memory_read(addr, size)` — `size` ≤ 64 KiB
+- `find_pattern(pattern, maxResults)` — `maxResults` ≤ 256
 
 These ceilings exist to bound a single MCP response; clients that need more issue follow-up calls.
 

@@ -15,11 +15,12 @@ This document describes the runtime structure, component layering, and lifecycle
 │  │  ┌─────────────────────────────────────────────────┐  │  │
 │  │  │ Native plugin entry (plugintemplate)            │  │  │
 │  │  │  - DllMain, plugininit, pluginstart             │  │  │
-│  │  │  - Registers x64dbg command "mcp.start"         │  │  │
+│  │  │  - Registers x64dbg commands: mcp.start          │  │  │
+│  │  │    and mcp.stop                                  │  │  │
 │  │  └────────────────────┬────────────────────────────┘  │  │
 │  │                       │ /clr:netcore                  │  │
 │  │  ┌────────────────────▼────────────────────────────┐  │  │
-│  │  │ Managed CLR side (.NET 10+)                     │  │  │
+│  │  │ Managed CLR side (.NET 10)                      │  │  │
 │  │  │  ┌─────────────────────────────────────────┐    │  │  │
 │  │  │  │ McpServerHost (x64dbgMCP.h)             │    │  │  │
 │  │  │  │  - WebApplication.CreateSlimBuilder     │    │  │  │
@@ -51,7 +52,7 @@ This document describes the runtime structure, component layering, and lifecycle
                   └───────────────────┘
 ```
 
-The plugin is a **single in-process DLL**. The native side handles x64dbg's plugin contract; the CLR side hosts an embedded ASP.NET Core `WebApplication` running the MCP HTTP transport. There is no out-of-process server, no IPC across process boundaries.
+The plugin executes as a **single in-process mixed-mode DLL**. The native side handles x64dbg's plugin contract; the CLR side hosts an embedded ASP.NET Core `WebApplication` running the MCP HTTP transport. There is no out-of-process server and no IPC across process boundaries. This describes the runtime process boundary, not the deployment file set: the mixed-mode DLL still loads the managed assemblies and runtime metadata copied beside it from the build output.
 
 ---
 
@@ -59,9 +60,9 @@ The plugin is a **single in-process DLL**. The native side handles x64dbg's plug
 
 | Phase | Trigger | Effect |
 |---|---|---|
-| Load | x64dbg loads `*.dp32`/`*.dp64` at startup or via `Plugins → Load` | Native `pluginit` registers x64dbg command `mcp.start`. CLR is initialised lazily on first managed call. |
+| Load | x64dbg loads `*.dp32`/`*.dp64` at startup or via `Plugins → Load` | Native `pluginit` registers x64dbg commands `mcp.start` and `mcp.stop`. CLR is initialised lazily on first managed call. |
 | Activate | User issues `mcp.start [port=3001],[host=localhost],[enableDebugging]` in x64dbg command line | A background `Task` constructs and starts `WebApplication`, then waits until `StopAsync`. The command reports success only after Kestrel has bound the configured URL. |
-| Serve | MCP client connects via Streamable HTTP (`POST /`) or Legacy SSE (`GET /sse` + `POST /message`) | Tool/resource methods are dispatched on ASP.NET Core thread-pool threads. Each method calls into x64dbg pluginsdk synchronously. |
+| Serve | MCP client connects via Streamable HTTP (`POST /`) or Legacy SSE (`GET /sse` + `POST /message`) | Tool/resource methods are dispatched on ASP.NET Core thread-pool threads and call the x64dbg pluginsdk. Calls that intentionally use x64dbg fire-and-forget semantics (for example `debug_control{action:"run"}`) return without waiting for the next debugger stop. |
 | Deactivate | x64dbg shuts down, plugin unloads, or explicit stop command | `McpServerHost::Stop` calls `app.StopAsync` and waits up to 5 s for the background task. A timeout leaves the host marked active until the background task actually exits, preventing an overlapping restart. |
 
 ---
@@ -79,9 +80,9 @@ The plugin is a **single in-process DLL**. The native side handles x64dbg's plug
                                 wiring; lifetime
 
  3. Tool & resource surface     [McpServerTool] /                    x64dbgHandler.h
-                                [McpServerResource] methods;          (planned: split
-                                input validation; result               into multiple
-                                envelope construction                  partial files)
+                                [McpServerResource] methods;
+                                input validation; result
+                                envelope construction
 
  4. Helpers                     Address parsing, x64dbg expression   x64dbgHandler.h
                                 resolution, naming conventions,       (Helpers class)
@@ -91,15 +92,15 @@ The plugin is a **single in-process DLL**. The native side handles x64dbg's plug
                                 Dbg*, Bridge* native APIs
 ```
 
-**Layering rule**: layer N may call layer N-1 only. Tool methods must not call ASP.NET Core APIs directly; helpers must not call MCP framework types. This keeps each layer testable in isolation and makes the boundary with x64dbg SDK explicit.
+**Layering rule**: dependency flow follows the table from the entry/host surface toward helpers and the x64dbg SDK. Tool and Resource methods may call `Helpers` and the native SDK bridge; `Helpers` may call the native SDK but must not depend on MCP framework types; neither surface nor helper code calls ASP.NET Core APIs directly. The host owns transport and registration only. This matches the current direct SDK calls in `x64dbgHandler.h` while keeping transport concerns out of debugger-domain code.
 
 ---
 
 ## 4. Threading
 
 - The MCP server runs on a single background `Task` started from `Task::Run`. ASP.NET Core then dispatches incoming requests onto thread-pool threads.
-- **All x64dbg pluginsdk calls happen on those request threads, not on x64dbg's main/GUI thread.** Most `Script::*` APIs are documented as safe from any thread (they internally marshal to the debugger's threads where needed). When a specific API is not thread-safe, the tool must marshal explicitly — see [conventions.md](conventions.md#threading) for the pattern.
-- Long-running operations (e.g. `FindPattern` on large modules) are not currently cancellable. If this becomes an issue, plumb `CancellationToken` from the MCP request context — see [adr/](adr/) for any future decision.
+- **Most x64dbg pluginsdk calls happen on those request threads.** `Script::*` APIs are generally documented as safe from any thread (they internally marshal to debugger threads where needed), while GUI-only calls are explicit exceptions: `x64dbg://logging` marshals `GuiLogSave` to the x64dbg GUI thread. When a specific API is not thread-safe, the tool must marshal explicitly — see [conventions.md](conventions.md#9-threading) for the pattern.
+- Current Tool methods do not accept `CancellationToken`. Before implementing a potentially long-running operation such as `find_pattern` over all modules, decide and document how MCP cancellation propagates to the underlying x64dbg work.
 
 ---
 
@@ -110,8 +111,8 @@ The MCP-visible surface is split into three forms based on access pattern. Detai
 | Form | When | Examples |
 |---|---|---|
 | **Resource** (`[McpServerResource]`) | Read-only bulk snapshots and collection navigation | `x64dbg://logging`, `x64dbg://modules`, `x64dbg://modules/{name}/sections`, `x64dbg://memory/maps`, `x64dbg://windows`, `x64dbg://handles`, `x64dbg://tcpconnections` |
-| **Rich-param Tool** (`[McpServerTool]`) | Focused queries over one target or a bounded hot-path window | `Disassemble(addr, count)`, `MemoryRead(addr, size)`, `FindPattern(pattern, maxResults)` |
-| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Fine-grained per-item reads/updates and debugger control clusters | `Labels{get/set/delete + batch}`, `DebugControl{init/run/pause/Step*}`, `Breakpoints{get/set/delete + batch}` |
+| **Rich-param Tool** (`[McpServerTool]`) | Focused operations over one target or a bounded hot-path window | `disassemble(addr, count)`, `memory_read(addr, size)`, `find_pattern(pattern, maxResults)`, `assemble(addr, instruction)` |
+| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Fine-grained per-item reads/updates and debugger control clusters | `labels{get/set/delete + batch}`, `debug_control{init/run/pause/Step*}`, `breakpoints{get/set/delete + batch}` |
 
 A Resource and Tool may cover the same domain when their access patterns differ: the Resource is the compact bulk-read surface, while the Tool addresses or changes individual items. They must not duplicate the same operation with equivalent inputs and outputs.
 
@@ -125,7 +126,7 @@ The `enableDebugging` flag on `McpServerHost::Start` controls whether the debugg
 
 - Project: `x64dbgMCP/x64dbgMCP.vcxproj`, `CLRSupport=NetCore`, `TargetFramework=net10.0`, `LanguageStandard=stdcpp17`, `PlatformToolset=v145`
 - Output: `out/bin/<platform>-<config>/x64dbgMCP.dp{32,64}` (extension switches by platform via `TargetExt`)
-- Dependencies pulled by NuGet (PackageReference): `ModelContextProtocol`, `ModelContextProtocol.AspNetCore` (1.1.0); FrameworkReference: `Microsoft.AspNetCore.App`
+- Dependencies pulled by NuGet (PackageReference): `ModelContextProtocol`, `ModelContextProtocol.AspNetCore` (2.1.0); FrameworkReference: `Microsoft.AspNetCore.App`
 - x64dbg pluginsdk is vendored under `x64dbgMCP/plugintemplate/pluginsdk/` and linked via `AdditionalLibraryDirectories=$(ProjectDir)plugintemplate`
 
-The build produces a self-contained mixed-mode DLL. No additional runtime files need to be copied alongside it as long as the host machine has the .NET 10 runtime available.
+The build is framework-dependent on the .NET 10 runtime and produces a mixed-mode plugin plus runtime metadata and managed dependencies in the MSBuild `OutputPath`. Deploying only `x64dbgMCP.dp32` / `x64dbgMCP.dp64` is insufficient on a clean target. The repository's `deploy_x64dbg_plugin` target therefore copies the complete `out/bin/<platform>-<config>/` directory into the matching x64dbg `plugins/` directory; runtime-relevant files include `Ijwhost.dll`, `x64dbgMCP.deps.json`, `x64dbgMCP.runtimeconfig.json`, and the MCP/AI managed assemblies.

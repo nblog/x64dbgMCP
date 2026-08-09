@@ -17,7 +17,9 @@ External resources used as authoritative sources for design and implementation. 
 - [modelcontextprotocol/csharp-sdk](https://github.com/modelcontextprotocol/csharp-sdk) — repo root
 - [EverythingServer sample](https://github.com/modelcontextprotocol/csharp-sdk/tree/main/samples/EverythingServer) — comprehensive sample exercising tools, resources, prompts
 - [SimpleResourceType.cs](https://github.com/modelcontextprotocol/csharp-sdk/blob/main/samples/EverythingServer/Resources/SimpleResourceType.cs) — `[McpServerResource(UriTemplate=...)]` reference for our resource layer
-- NuGet packages used by this project (1.1.0):
+- [`AIFunctionMcpServerTool.DeriveName` in v2.1.0](https://github.com/modelcontextprotocol/csharp-sdk/blob/v2.1.0/src/ModelContextProtocol.Core/Server/AIFunctionMcpServerTool.cs#L337-L383) — default MCP-visible Tool names are derived with `JsonNamingPolicy.SnakeCaseLower`
+- [`McpServerToolAttribute` in v2.1.0](https://github.com/modelcontextprotocol/csharp-sdk/blob/v2.1.0/src/ModelContextProtocol.Core/Server/McpServerToolAttribute.cs) — exception-to-failed-result behavior and the opt-in `UseStructuredContent` / `OutputSchemaType` boundary
+- NuGet packages used by this project (2.1.0):
   - `ModelContextProtocol`
   - `ModelContextProtocol.AspNetCore`
 
@@ -25,7 +27,7 @@ External resources used as authoritative sources for design and implementation. 
 
 - `HttpMcpServerBuilderExtensions::WithHttpTransport` — enables Streamable HTTP + Legacy SSE
 - `McpEndpointRouteBuilderExtensions::MapMcp(app, "")` — maps MCP endpoints to the app's root path
-- See [x64dbgMCP.h:79-104](../x64dbgMCP/x64dbgMCP.h#L79-L104) for our wiring
+- See [x64dbgMCP.h](../x64dbgMCP/x64dbgMCP.h) for our wiring
 
 ---
 
@@ -71,19 +73,19 @@ The pluginsdk headers are vendored under [`x64dbgMCP/plugintemplate/pluginsdk/`]
 
 - [x64dbg help — Expressions](https://help.x64dbg.com/en/latest/introduction/Expressions.html) — expression syntax cited by ADR-002
 - [x64dbg help — Plugins](https://help.x64dbg.com/en/latest/developers/plugins/index.html) — plugin SDK reference
-- [x64dbg help — Commands](https://help.x64dbg.com/en/latest/commands/index.html) — full x64dbg command catalog (relevant to `DebugControl{action:"run_command"}`)
+- [x64dbg help — Commands](https://help.x64dbg.com/en/latest/commands/index.html) — full x64dbg command catalog (relevant to `debug_control{action:"run_command"}`)
 
-#### x64dbg command groups (cited by `DebugControl` and other mega-tools)
+#### x64dbg command groups (cited by `debug_control` and other mega-tools)
 
-When implementing a `DebugControl` action that maps onto a raw command, consult the matching group page first. Names and argument shapes occasionally change between x64dbg releases.
+When implementing a `debug_control` action that maps onto a raw command, consult the matching group page first. Names and argument shapes occasionally change between x64dbg releases.
 
 | Group | URL | Used by |
 |---|---|---|
-| Debug control | [help.x64dbg.com/.../debug-control/index.html](https://help.x64dbg.com/en/latest/commands/debug-control/index.html) | `DebugControl{init, stop, run, pause, Step*}` |
-| Breakpoints | [help.x64dbg.com/.../breakpoint-control/index.html](https://help.x64dbg.com/en/latest/commands/breakpoint-control/index.html) | `Breakpoints{...}` |
-| Memory operations | [help.x64dbg.com/.../memory-operations/index.html](https://help.x64dbg.com/en/latest/commands/memory-operations/index.html) | `Memory{write, alloc, free}` |
-| Threads | [help.x64dbg.com/.../thread-control/index.html](https://help.x64dbg.com/en/latest/commands/thread-control/index.html) | `Threads{...}` |
-| Variables / Expressions | [help.x64dbg.com/.../variables/index.html](https://help.x64dbg.com/en/latest/commands/variables/index.html) | `Registers`, `ParseExpression` (when arithmetic is involved) |
+| Debug control | [help.x64dbg.com/.../debug-control/index.html](https://help.x64dbg.com/en/latest/commands/debug-control/index.html) | `debug_control{init, stop, run, pause, Step*}` |
+| Breakpoints | [help.x64dbg.com/.../breakpoint-control/index.html](https://help.x64dbg.com/en/latest/commands/breakpoint-control/index.html) | `breakpoints{...}` |
+| Memory operations | [help.x64dbg.com/.../memory-operations/index.html](https://help.x64dbg.com/en/latest/commands/memory-operations/index.html) | `memory{write, alloc, free}` |
+| Threads | [help.x64dbg.com/.../thread-control/index.html](https://help.x64dbg.com/en/latest/commands/thread-control/index.html) | `threads{...}` |
+| Variables / Expressions | [help.x64dbg.com/.../variables/index.html](https://help.x64dbg.com/en/latest/commands/variables/index.html) | `registers`, `parse_expression` (when arithmetic is involved) |
 
 ### Repository
 
@@ -95,11 +97,11 @@ When implementing a `DebugControl` action that maps onto a raw command, consult 
 
 ### Bundled compression (lz4)
 
-x64dbg ships a `lz4` static lib alongside the pluginsdk ([`pluginsdk/lz4/`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/)). We use the legacy block API (`LZ4_compress` / `LZ4_decompress_safe` / `LZ4_compressBound`, all `__declspec(dllimport)` from the bundled DLL) to compress `MemoryRead` payloads when the caller opts in.
+x64dbg ships architecture-specific lz4 import libraries and headers in the pluginsdk ([`pluginsdk/lz4/`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/)), with the runtime implementation provided by `lz4.dll` in each x64dbg release architecture directory. The plugin imports the legacy block API (`LZ4_compress` and `LZ4_compressBound`); clients may use `LZ4_decompress_safe` to decode an opted-in `memory_read` response.
 
 - [lz4 reference](https://github.com/lz4/lz4/blob/dev/lib/lz4.h) — upstream API; the bundled headers are an older snapshot, so prefer the bundled signatures over upstream-only additions
 - Bundled headers: [`lz4.h`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/lz4.h) (block), [`lz4hc.h`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/lz4hc.h) (high-compression), [`lz4file.h`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/lz4file.h) (file IO — unused by us)
-- Wire format we use for `MemoryRead{compress=true}`: lz4 block bytes (no frame header, no length prefix). Decompressors must know the original size — we expose it as `Size` in the response. Reference: [x64dbgpy3 — RequestBuffer::Serialize](https://github.com/nblog/x64dbgpy3/blob/main/x64dbgpy3svr/x64dbghandler.hpp#L25-L144) (uses a 4-byte big-endian length header *plus* the lz4 bytes; we omit the header because the JSON envelope already carries `Size`)
+- Wire format used by `memory_read{compress=true}`: lz4 block bytes (no frame header, no length prefix). Decompressors must know the original size — the response exposes it as `size`. Reference: [x64dbgpy3 — RequestBuffer::Serialize](https://github.com/nblog/x64dbgpy3/blob/main/x64dbgpy3svr/x64dbghandler.hpp#L25-L144) (uses a 4-byte big-endian length header *plus* the lz4 bytes; this project omits the header because the JSON envelope already carries `size`)
 
 ---
 

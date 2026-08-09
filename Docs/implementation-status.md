@@ -1,46 +1,68 @@
 # Implementation Status
 
-本文件是开发完成度与验证边界的唯一来源。根级 [`README.md`](../README.md) 按最终产品能力描述；目标契约以 [`tools-spec.md`](tools-spec.md) 为准；本文件只回答“代码现在实现了什么、验证到了哪一步、下一批做什么”。`tools-spec.md` 中的 🟢/🟡/⚪ 表示契约成熟度，不表示代码完成度。
+本文件是开发完成度与验证边界的唯一来源。根级 [`README.md`](../README.md) 按最终产品能力描述；目标契约以 [`tools-spec.md`](tools-spec.md) 为准；本文件只回答“代码现在实现了什么、验证到了哪一步、还差什么”。`tools-spec.md` 中的 🟢/🟡/⚪ 表示契约成熟度，不表示代码完成度。
 
-> Snapshot: 2026-08-09. 统计依据为 `x64dbgMCP/x64dbgHandler.h` 中实际注册的 `[McpServerResource]` 与 `[McpServerTool]`，不是 README 功能清单。
+> Snapshot: 2026-08-10，HEAD `ca783d9`；最近一次双架构 live MCP 验收完成于 2026-08-09。统计先以实时 MCP `tools/list`、`resources/list`、`resources/templates/list` 为准，再与 `x64dbgMCP/x64dbgHandler.h` 中的注册和实现交叉核对；不是从根级 README 的产品清单反推。
 
 ## Coverage
 
-| Surface | Contract target | Implemented | Remaining |
+| Surface | Contract target | Implemented / registered | Remaining |
 |---|---:|---:|---:|
-| Resources | 19 | 13 | 6 |
-| Rich-param Tools | 7 | 2 | 5 |
-| Analysis mega-tools | 6 | 0 | 6 |
-| Debugger-domain mega-tools | 7 | 3 | 4 |
-| **All Tools** | **20** | **5** | **15** |
+| Fixed Resources | 8 | 8 | 0 |
+| Resource Templates | 5 | 5 | 0 |
+| Reserved Resources | 6 | 0 | 6 |
+| **All Resources** | **19** | **13** | **6** |
+| Always-registered rich-param Tools | 6 | 2 | 4 |
+| Analysis action-mega Tools | 6 | 0 | 6 |
+| Debugger-domain Tools | 7 | 3 | 4 |
+| **All Tools** | **19** | **5** | **14** |
 
-当前实现的 13 个 Resources 为：`x64dbg://session`、`x64dbg://logging`、`x64dbg://process`、`x64dbg://modules`、`x64dbg://modules/{name}`、`x64dbg://modules/{name}/sections`、`x64dbg://modules/{name}/exports`、`x64dbg://modules/{name}/imports`、`x64dbg://memory/maps`、`x64dbg://threads`、`x64dbg://windows`、`x64dbg://handles`、`x64dbg://tcpconnections`。
+### Runtime catalog
 
-尚未实现的 6 个 reserved Resources 为：`x64dbg://symbols`、`x64dbg://functions`、`x64dbg://labels`、`x64dbg://comments`、`x64dbg://bookmarks`、`x64dbg://breakpoints`。
+实时 `resources/list` 返回 8 个固定 Resources：`x64dbg://session`、`x64dbg://logging`、`x64dbg://process`、`x64dbg://memory/maps`、`x64dbg://threads`、`x64dbg://windows`、`x64dbg://handles`、`x64dbg://tcpconnections`。
 
-当前实现的 5 个 Tools 为：常驻的 `Disassemble`、`MemoryRead`，以及由调试领域目录门控的 `DebugControl`、`Registers`、`Logging`。其余 15 个目标 Tools 尚未实现：`FindPattern`、`ParseExpression`、`GetStringAt`、`GetCallStack`、`GetRegisterDump`；`Symbols`、`Functions`、`Labels`、`Comments`、`Bookmarks`、`Xrefs`；`Breakpoints`、`Memory`、`Threads`、`Assemble`。
+实时 `resources/templates/list` 返回 5 个 Resource Templates：`x64dbg://modules{?offset,limit}`、`x64dbg://modules/{name}`、`x64dbg://modules/{name}/sections`、`x64dbg://modules/{name}/exports`、`x64dbg://modules/{name}/imports`。因此当前共有 13 个可读取 Resource 端点，但只有前 8 个出现在固定 Resource 列表中。
+
+尚未注册的 6 个 reserved Resources 为：`x64dbg://symbols`、`x64dbg://functions`、`x64dbg://labels`、`x64dbg://comments`、`x64dbg://bookmarks`、`x64dbg://breakpoints`。
+
+实时 `tools/list` 返回 5 个 MCP-visible Tools：常驻的 `disassemble`、`memory_read`，以及由调试领域目录门控的 `debug_control`、`registers`、`logging`。C++/CLI 方法使用 `PascalCase`，MCP C# SDK 2.1.0 默认把它们派生为上述 `snake_case` wire names。
+
+其余 14 个目标 Tools 尚未实现：常驻 rich-param 的 `find_pattern`、`parse_expression`、`get_string_at`、`get_call_stack`；分析 action-mega 的 `symbols`、`functions`、`labels`、`comments`、`bookmarks`、`xrefs`；调试领域的 `breakpoints`、`memory`、`threads`、`assemble`。寄存器批量读取已由 `registers{action:"dump"}` 实现，契约不再重复保留 `get_register_dump`。
 
 ## Current milestone
 
-本里程碑在既有能力对齐的基础上实现了日志读写闭环：`x64dbg://logging` 通过 GUI 线程上的 `GuiLogSave` 生成 UTF-8 临时文件，读取成功后立即删除，`Logging{clear,put}` 分别直接调用 `GuiLogClear` 与 `_plugin_logputs`。已完成的相邻契约修复包括：Process JSON 字段采用契约命名；modules Resource 支持 `offset/limit` 分页并区分列表项与详情链接；由于 C++/CLI 不会为原可选参数生成 CLR default constant，modules 从请求 URI 解析可选 query，避免 MCP SDK 在启动或读取默认页时把 `Missing.Value` 转换为 `Int32`；`Disassemble` 对不可读地址、反汇编失败和字节读取失败返回真实错误，并填充 x64dbg comment；`Registers{dump}` 支持指定 `threadId`；MCP Server 只有在 Kestrel 成功绑定后才报告启动成功。
+当前里程碑实现了日志读写闭环：`x64dbg://logging` 在 GUI 线程调用 `GuiLogSave` 生成 UTF-8 临时快照，读取成功后删除；`logging{clear,put}` 分别调用 `GuiLogClear` 与 `_plugin_logputs`。相邻实现还包括：Process JSON 字段使用契约 wire names；modules Resource 支持 `offset/limit` 分页并区分列表项与详情链接；modules 从请求 URI 解析可选 query，绕开 C++/CLI 可选参数没有 CLR default constant 时的 `Missing.Value` 转换问题；`disassemble` 对不可读地址、反汇编失败和字节读取失败返回真实错误并带回 x64dbg comment；`registers{dump}` 支持指定 `threadId`；MCP Server 只有在 Kestrel 成功绑定后才报告启动成功。
 
-`enableDebugging` 的正式含义已经对齐为“调试领域 Tool catalog / schema-budget 门控”，不是通用写权限。Resource 的正式边界是只读批量快照，Tool 的正式边界是单项精细读取、修改与控制；同一领域可以同时存在两种表面，但不得重复等价操作。见 [ADR-003](adr/003-tool-resource-action-three-layer.md)。
+`enableDebugging` 的正式含义是“调试领域 Tool catalog / schema-budget 门控”，不是通用写权限。Resource 的正式边界是只读批量快照，Tool 的正式边界是单项精细读取、修改与控制；同一领域可以同时存在两种表面，但不得重复等价操作。见 [ADR-003](adr/003-tool-resource-action-three-layer.md)。
 
 ## Verification boundary
 
+本轮使用以下真实目标完成双架构验收：x64dbg 调试带大型 PDB 的 Electron 32.2.8 x64，x32dbg 调试 `%SystemRoot%\SysWOW64\notepad.exe`。所有状态变更均在 Tool 返回后用相关 Resource 二次确认。
+
 | Check | Status | Evidence / limit |
 |---|---|---|
-| Debug x64 build | Verified | `out/bin/x64-Debug/x64dbgMCP.dp64`, SHA-256 `0AB0028DE673B82B0436FC5487173B2C3F8D27349CAC3167778F346E10BF6B66`, 0 errors / 8 known warnings |
-| Debug Win32 build | Verified | `out/bin/win32-Debug/x64dbgMCP.dp32`, SHA-256 `6AE87ED155AE84A50379AF8D756D17EE30568D2C9D2F2580ECF7ED0DA898DB4C`, 0 errors / 8 known warnings |
+| Debug x64 build | Verified | `out/bin/x64-Debug/x64dbgMCP.dp64`, SHA-256 `A87F1EF3FA5751CB1ABD48E41377F8D76218027A573B65B450B6CB77A47CA711`, build succeeded with 0 errors |
+| Debug Win32 build | Verified | `out/bin/win32-Debug/x64dbgMCP.dp32`, SHA-256 `B593046DE672394A3532F8F48F49F903727F5268A3D47BDD6B2EBC45FCDDCF89`, build succeeded with 0 errors |
 | Full plugin deployment | Verified | x64 and x86 complete 11-file `OutputPath` sets deployed; every source/deployed SHA-256 pair matched |
-| MCP startup / catalog | Verified on x64 and x86 | Debug auto-start reached a live `localhost:3001` listener; mcporter discovered `logging`; the previous `System.Int32` schema-generation failure no longer occurs |
-| Modules optional query routing | Verified on x64 and x86 | `x64dbg://modules` returned defaults `offset=0,limit=100`; `?offset=0&limit=1` passed on both architectures; x64 additionally passed `?limit=1` and `?offset=2` |
-| Logging live round trip | Verified on x64 and x86 | mcporter `logging action=put` preserved Chinese UTF-8 text in `x64dbg://logging`; `action=clear` returned success and the following snapshot was empty |
-| Logging temporary-file behavior | Verified on x64 and x86 | File-system events observed `tmpa53asj.tmp` (x64) and `tmpe5eme1.tmp` (x86) being created and then deleted during successful Resource reads; `%TEMP%\\tmp*.tmp` remained at the pre-existing count of 24 after each call, with no new snapshot left behind |
+| MCP catalog | Verified on x64 and x86 | Both returned the same 5 Tools, 8 fixed Resources, and 5 Resource Templates listed above |
+| All current Resources | Verified on x64 and x86 | All 13 endpoints read successfully; modules default page and explicit `offset/limit` pagination passed on both architectures |
+| Module children | Verified on x64 and x86 | Electron: 15 sections, 3163 exports, 652 imports; Notepad: 6 sections, empty exports, 312 imports |
+| `disassemble` / `memory_read` | Verified on x64 and x86 | Reads at CIP succeeded and byte prefixes agreed; invalid address and invalid size/count returned the contracted errors |
+| LZ4 memory payload | Verified on x64 | A 256-byte raw read and compressed read were compared after `LZ4_decompress_safe`; decompressed bytes matched the raw payload exactly |
+| `registers` | Verified on x64 and x86 | Active dump, get, set-to-same-value, architecture-specific register sets, paused inactive-thread dump, missing thread, and running-target `not_paused` paths passed |
+| `debug_control` | Verified | `init`, `run`, `pause`, `stop`, `StepInto`, `StepOver`, `StepOut`, `run_command(wait=true)`, and invalid action covered; x32 `init` completed detached → attached → detached lifecycle |
+| `logging` | Verified on x64 and x86 | After displaying the Log tab, `clear` → `put` → Resource read preserved exact Chinese UTF-8 text; empty `put` returned `invalid_argument` |
+| Tool output schema | Known SDK boundary | Current `[McpServerTool]` annotations do not set `UseStructuredContent`; typed results are returned as JSON text content and are not advertised as `outputSchema` in `tools/list` |
 | Logging snapshot boundary | Upstream-defined | `GuiLogSave` serializes the rendered `QTextDocument`; while the Log tab is hidden, x64dbg may retain newer messages in its private `logBuffer` until the tab is displayed and its flush timer runs |
-| Release builds | Not rerun for this milestone | The prior milestone passed x64/Win32 Release, but the new logging implementation was validated only in Debug builds |
+| Electron PDB | Partially observable | Waited more than two minutes and x64dbg resource use stabilized, but the current MCP surface has no symbols Resource/Tool, so PDB symbol enumeration was not and cannot be claimed as verified |
+| Release builds | Not rerun for this milestone | Current logging/pagination changes were validated in Debug builds; the previous Release result is not treated as current evidence |
+| Server stop/restart and bind failure | Not rerun in this acceptance pass | `mcp.stop` → restart and occupied-port startup failure propagation remain outside the latest Tools/Resources acceptance matrix |
 
-当前编译仍有仓库已知的 .NET 10 `C4945` 重复类型导入警告；本里程碑的双架构 Debug 构建各为 0 errors / 8 warnings。尚未在本轮重验的既有行为包括：端口占用失败传播；`Disassemble` 的可读/不可读地址、comment 与 `withBytes`；`Registers{dump}` 的活动线程、暂停时的非活动线程以及运行时的 `not_paused`；`mcp.stop` 后重启。
+## Known conformance gaps
+
+1. Per-module `_links.entry_disasm.tool` is currently emitted as the managed method name `Disassemble`, while MCP C# SDK 2.1.0 registers the wire name `disassemble`. The Resource payload is readable, but a case-sensitive client cannot invoke that link verbatim. Code must emit the wire name defined by [conventions.md](conventions.md#1-naming).
+2. The six reserved Resources and fourteen target Tools listed under Coverage are not registered. Their presence in the root README describes the intended product surface, not current implementation.
+3. Symbol/PDB behavior has no MCP-observable contract yet. Large-PDB process stability is evidence about the host session only, not evidence that symbols can be queried through MCP.
 
 ## Temporary experiment deviations
 
@@ -51,11 +73,10 @@
 
 ## Next implementation order
 
-下一批优先完成当前里程碑的 live MCP 验收，因为它能直接验证启动失败传播、SDK URI-template 路由和 Win32 thread-context 边界。随后按最小可验证批次实施：
-
-1. 补齐常驻 rich-param 查询：`ParseExpression` → `GetStringAt` → `FindPattern` → `GetCallStack` → `GetRegisterDump`。
-2. 成对实现批量 Resource 与单项 Tool：symbols → labels → comments → bookmarks → functions；`Xrefs` 只保留目标地址上的精细 Tool。
-3. 扩展调试领域目录：breakpoints Resource + `Breakpoints` Tool → `Memory` → `Threads` → `Assemble`。
-4. 在行为稳定后，为单测/集成测试策略新增 ADR，并把 live smoke cases 固化为可重复测试入口。
+1. 先修复现有 `_links.entry_disasm.tool` 的 wire-name 漂移，并增加目录/链接一致性检查，避免 Resource 导航指向不存在的 Tool。
+2. 补齐常驻 rich-param 查询：`parse_expression` → `get_string_at` → `find_pattern` → `get_call_stack`。
+3. 成对实现批量 Resource 与单项 Tool：symbols → labels → comments → bookmarks → functions；`xrefs` 只保留目标地址上的精细 Tool。Symbols 应包含可验证的 PDB 加载/枚举状态，使 Electron 大型 PDB 场景第一次具备 MCP 语义验收面。
+4. 扩展调试领域目录：breakpoints Resource + `breakpoints` Tool → `memory` → `threads` → `assemble`。
+5. 重验双架构 Release、`mcp.stop` → restart 和端口占用失败传播；在行为稳定后，为单测/集成测试策略新增 ADR，并把 live smoke cases 固化为可重复测试入口。
 
 每一批继续遵守 Docs-first：先把 🟡/⚪ 契约收敛为可实施 schema，再改代码；若实现证据与基线冲突，按根级 `AGENTS.md` 要求先停止并对齐文档。

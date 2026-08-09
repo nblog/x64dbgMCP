@@ -26,9 +26,10 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 
 | 你要做的事 | 必读文件 |
 |---|---|
+| 判断当前已实现、待实现与已验证边界 | [implementation-status.md](implementation-status.md)；再用 [tools-spec.md](tools-spec.md) 确认目标契约 |
 | 新增/修改 MCP Tool | [conventions.md](conventions.md) → [tools-spec.md](tools-spec.md) → [adr/003](adr/003-tool-resource-action-three-layer.md) |
-| 新增/修改 MCP Resource | [conventions.md](conventions.md) → [tools-spec.md](tools-spec.md#资源-resources) → [adr/003](adr/003-tool-resource-action-three-layer.md) |
-| 设计返回结构 / 错误处理 | [conventions.md](conventions.md#返回结构) + [adr/004](adr/004-typed-result-with-envelope.md) |
+| 新增/修改 MCP Resource | [conventions.md](conventions.md) → [tools-spec.md](tools-spec.md#2-resources) → [adr/003](adr/003-tool-resource-action-three-layer.md) |
+| 设计返回结构 / 错误处理 | [conventions.md](conventions.md#4-result-envelope) + [adr/004](adr/004-typed-result-with-envelope.md) |
 | 处理寄存器/标志位/表达式输入 | [adr/002](adr/002-resolve-via-x64dbg-expression.md) |
 | 修改 server 启动 / 生命周期 / 端口 / 命令注册 | [architecture.md](architecture.md) |
 | 引入大型设计变更 | 先查 [adr/](adr/) 是否已存在；若无，**先提议新增 ADR**，再实施 |
@@ -43,7 +44,7 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 | [README.md](README.md) | （本文件）开发实施中心，导航与原则 |
 | [architecture.md](architecture.md) | 架构总览：进程/线程模型、组件分层、数据流、生命周期 |
 | [conventions.md](conventions.md) | 编码与契约约定：命名、地址格式、错误语义、返回 envelope、HATEOAS |
-| [tools-spec.md](tools-spec.md) | MCP Tool 与 Resource 契约骨架（输入/输出 schema、错误条件） |
+| [tools-spec.md](tools-spec.md) | MCP Tool 与 Resource 目标契约（输入/输出 schema、错误条件；成熟度标记不代表已实现） |
 | [implementation-status.md](implementation-status.md) | 当前实现覆盖率、验证边界、临时实验偏离与下一批实施顺序 |
 | [adr/](adr/) | Architecture Decision Records — 关键设计决策的可追溯快照 |
 | [references.md](references.md) | 外部参考索引：x64dbg SDK 头、MCP 规范、ASP.NET Core 配置 |
@@ -54,6 +55,6 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 
 1. **Schema-as-constraint** — 文档不是描述性的"事后总结"，而是约束性的"事前契约"。代码与文档冲突时，先讨论修哪边，再改。
 2. **Source-anchored** — 任何技术声明须挂可验证来源（SDK 头路径、官方文档 URL、ADR 编号）。无来源的判断要标注 *unverified inference*。
-3. **One authoritative source** — 同一信息只在一处定义，其它地方用链接引用。例如返回 envelope 形态在 [conventions.md](conventions.md#返回结构) 定义，[tools-spec.md](tools-spec.md) 只引用不重复。
+3. **One authoritative source** — 同一信息只在一处定义，其它地方用链接引用。例如返回 envelope 形态在 [conventions.md](conventions.md#4-result-envelope) 定义，[tools-spec.md](tools-spec.md) 只引用不重复。
 4. **Decisions are first-class** — 设计选择走 [ADR](adr/)。代码注释只解释"为什么这里反直觉"，不承载决策本体。
 5. **语言混合**: README/ADR 用中文（讨论密度高）；conventions/tools-spec 用英文（贴近代码）。

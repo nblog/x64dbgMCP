@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-24
-- **Amended**: 2026-08-08
+- **Amended**: 2026-08-10
 - **Deciders**: @nblog
 
 ## Context
@@ -12,9 +12,9 @@ The naive translation of x64dbg pluginsdk to MCP is 1:1 — every SDK function b
 Two costs follow from 1:1 mapping:
 
 1. **Tool-list bloat**: Anthropic measures tool definitions consuming 20–40%+ of an agent's context window in real deployments, with one 5-server config hitting ~55k tokens of pure tool schemas ([Writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents); [Code execution with MCP](https://anthropic.com/engineering/code-execution-with-mcp)). 50 tools × ~150 tokens of schema each ≈ 7.5k tokens just for our surface.
-2. **Round-trip amplification**: 1:1 forces narrow returns. Disassembling 30 instructions becomes 30 tool calls if `Disassemble(addr)` returns one line. Each call is a request/response pair in the agent's context. The user explicitly raised this concern.
+2. **Round-trip amplification**: 1:1 forces narrow returns. Disassembling 30 instructions becomes 30 tool calls if `disassemble(addr)` returns one line. Each call is a request/response pair in the agent's context. The user explicitly raised this concern.
 
-Survey of prior art (see [research notes](../references.md#prior-art-mcp-servers-for-reverse-engineering)):
+Survey of prior art (see [research notes](../references.md#4-prior-art-mcp-servers-for-reverse-engineering)):
 
 | Project | Tools | Pattern | Notable |
 |---|---|---|---|
@@ -48,12 +48,13 @@ Resources are not required to be immutable or permanently cacheable: their conte
 
 ### Layer B — Rich-param Tools (`[McpServerTool]`)
 
-For **single-purpose focused queries** over one target or a bounded hot-path window:
+For **single-purpose focused operations** over one target or a bounded hot-path window:
 
-- `Disassemble(addr, count, withBytes?)` — `count` ≤ 200
-- `MemoryRead(addr, size)` — `size` ≤ 64 KiB
-- `FindPattern(pattern, scope?, maxResults?)` — `maxResults` ≤ 256
-- `ParseExpression(expr)`, `GetStringAt(addr)`, `GetCallStack(threadId?)`, `GetRegisterDump(threadId?)`
+- `disassemble(addr, count, withBytes?)` — `count` ≤ 200
+- `memory_read(addr, size)` — `size` ≤ 64 KiB
+- `find_pattern(pattern, scope?, maxResults?)` — `maxResults` ≤ 256
+- `parse_expression(expr)`, `get_string_at(addr)`, `get_call_stack(threadId?)`
+- Debugger-domain focused operation `assemble(addr, instruction, fillNops?)`, registered only behind the debugger catalog gate
 
 Benefits: clear contract, minimal action enum noise, AI agents discover them by name.
 
@@ -61,17 +62,19 @@ Benefits: clear contract, minimal action enum noise, AI agents discover them by 
 
 For **fine-grained per-item CRUD families** and **debug control clusters** that share parameter shapes:
 
-- `Labels{get, set, delete, set_batch, delete_batch}`; bulk reads use `x64dbg://labels`
-- `Comments{...}`, `Bookmarks{...}`, `Functions{...}`, `Xrefs{...}`
-- `DebugControl{run, pause, stop, restart, step_into, step_over, step_out, init, run_command}`
-- `Breakpoints{get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}`; bulk reads use `x64dbg://breakpoints`
-- `Registers{get, set, dump}`, `Memory{write, alloc, free}`, `Threads{get, set_name, set_active, suspend, resume, create_at}`, `Logging{clear, put}`
+- `labels{get, set, delete, set_batch, delete_batch}`; bulk reads use `x64dbg://labels`
+- `comments{...}`, `bookmarks{...}`, `functions{...}`, `xrefs{...}`
+- `debug_control{run, pause, stop, StepInto, StepOver, StepOut, init, run_command}`
+- `breakpoints{get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}`; bulk reads use `x64dbg://breakpoints`
+- `registers{get, set, dump}`, `memory{write, alloc, free}`, `threads{get, set_name, set_active, suspend, resume, create_at}`, `logging{clear, put}`
 
 Benefits: tool count compression, symmetric ops live next to each other, batch variants come for free in the same dispatch.
 
 ### Estimated surface
 
-The current target catalog is ~19 resources + ~7 rich-param tools + ~13 mega-tools. Only tool definitions consume the AI tool-schema budget. With debugger-domain tools gated off, an agent loads ~13 tool definitions instead of the full ~20 (PoC: 50+).
+The current target catalog is 19 Resources + 7 rich-param Tools (including the gated `assemble`) + 12 action-mega Tools, for 19 Tools in total. Only Tool definitions consume the AI tool-schema budget. With debugger-domain Tools gated off, an agent loads 12 Tool definitions instead of the full 19 (PoC: 50+).
+
+`registers{action:"dump"}` is the sole register-dump Tool surface. A separate `get_register_dump` rich-param Tool would be an equivalent duplicate and is therefore excluded from the target catalog.
 
 ### Debugger-domain catalog gate
 
@@ -84,7 +87,7 @@ This classification is by **debugger domain and schema cost**, not by whether an
 **Positive**
 
 - Tool-list size roughly halved vs PoC
-- Disassembly / memory read / pattern search return bulk in one call
+- Disassembly / memory read / pattern search return bounded windows in one call
 - Bulk collections become free to browse via Resources rather than tool calls
 - Action mega-tools naturally accommodate batch operations (key for AI agents iterating over many addresses)
 
@@ -107,7 +110,7 @@ This classification is by **debugger domain and schema cost**, not by whether an
 ## Alternatives Considered
 
 1. **Pure 1:1 (PoC shape)** — rejected. Density and tool-list bloat are the original problem.
-2. **Pure mega-tool (better-x64dbg-mcp shape, 21 tools / 148 ops)** — rejected as too aggressive. Single-purpose hot queries (`Disassemble`, `MemoryRead`) lose discoverability when buried under an `action` enum, and big schemas make every read of the tool list expensive.
+2. **Pure mega-tool (better-x64dbg-mcp shape, 21 tools / 148 ops)** — rejected as too aggressive. Single-purpose hot queries (`disassemble`, `memory_read`) lose discoverability when buried under an `action` enum, and big schemas make every read of the tool list expensive.
 3. **HATEOAS-only with one query tool (GraphQL-ish)** — rejected. Maximum client autonomy but maximum schema cost; the AI must learn the entire query language to do anything. Better suited to client SDK code than to chat-driven agents.
 4. **Pure Resources + a single `execute` tool** — rejected. Hides precise operations behind one oversized schema and discards the discoverability of focused tools.
 5. **One layer per concept** — superseded by the 2026-08-08 amendment. It prevented the useful combination of a compact bulk-read Resource with precise per-item Tools.

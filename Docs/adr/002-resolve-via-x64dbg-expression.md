@@ -2,6 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-24
+- **Amended**: 2026-08-10
 - **Deciders**: @nblog
 
 ## Context
@@ -21,10 +22,10 @@ The x64dbg pluginsdk already exposes `Script::Misc::ParseExpression(const char*,
 
 - Address-like parameters → `Helpers::ResolveExpression(String^)` → `Script::Misc::ParseExpression`
 - Register read → `DbgValFromString("rax", &out)` (or `Script::Register::Get` if a typed enum value is needed for downstream native API)
-- Register write → `DbgValToString("rax", value)` or `Script::Register::Set` with a small dispatch lookup
+- Register write → `DbgValSetScalar("rax", value)` (the current name of the API previously called `DbgValToString`) or `Script::Register::Set` when a typed enum is required downstream
 - Flag read/write → resolve `"_zf"` / `"zf"` via the expression engine; raw boolean exposed via `Script::Flag::Get/Set` only at the lowest layer if needed
 
-The `Registers{get, set}` mega-tool ([tools-spec.md §5](../tools-spec.md#registersget-set-dump-)) accepts a free-form `name: string` parameter. We do not enumerate valid names in our schema — the description points users to the x64dbg vocabulary.
+The `registers{get, set}` mega-tool ([tools-spec.md §5](../tools-spec.md#registersget-set-dump-)) accepts a free-form `name: string` parameter. We do not enumerate valid names in our schema — the description points users to the x64dbg vocabulary.
 
 **Exceptions** (where a small mirror is unavoidable):
 
@@ -41,7 +42,7 @@ The `Registers{get, set}` mega-tool ([tools-spec.md §5](../tools-spec.md#regist
 
 **Negative**
 
-- Error messages on invalid input come from x64dbg (`"Failed to resolve expression: rxxx"`) rather than from our curated message that lists valid names. Mitigation: when a `Registers{action:"get"}` call fails with `not_found`, attach a `_links.help` pointing at MCP Resource `x64dbg://session` (or a future `x64dbg://docs/registers` resource) so the agent can self-discover the vocabulary.
+- Invalid inputs are reported with the project's `not_found` / `invalid_argument` envelope while the accepted vocabulary still comes from x64dbg rather than a curated enum. If discoverability proves insufficient, add a dedicated documentation Resource or help link under a separately specified contract; `x64dbg://session` does not currently expose register vocabulary.
 - A typo by the agent may resolve to a label or symbol with the same name. Acceptable: that's how x64dbg itself behaves; we don't add a new failure mode.
 
 **Constraints on future work**

@@ -2,9 +2,11 @@
 
 This is the **contract baseline** for the MCP surface. Every tool and resource must conform to the shapes declared here. Adding/changing the surface requires updating this file *first*, then implementation.
 
-> **Status legend**: `🟢 specified` — schema settled, ready to implement | `🟡 draft` — shape under discussion | `⚪ stub` — name reserved, contents TBD
+> **Contract-maturity legend**: `🟢 stable` — schema settled | `🟡 draft` — shape under discussion | `⚪ stub` — name reserved, contents TBD. These markers never mean “implemented”; current code coverage lives only in [implementation-status.md](implementation-status.md).
 
 > Cross-cutting rules (envelope, errors, addresses, pagination, links) live in [conventions.md](conventions.md). This file does not duplicate them; it only declares per-tool/per-resource specifics.
+
+Tool headings use the exact MCP-visible `snake_case` name returned by `tools/list`. C++/CLI method signatures remain `PascalCase`; MCP C# SDK 2.1.0 derives the wire name when `[McpServerTool(Name=...)]` is not set.
 
 ---
 
@@ -249,7 +251,7 @@ public:
     // property String^ Handle;       // native handle, currently not exposed
     property int ThreadId;
     property String^ Name;
-    property String^ Pc;             // program counter, hex
+    property String^ Cip;            // serialized as "pc"; program counter, hex
     property String^ EntryPoint;     // hex
     property String^ TebAddress;     // hex
     property unsigned int SuspendCount;
@@ -366,9 +368,11 @@ public:
 
 ---
 
-## 3. Rich-param Tools (Analysis, read-only — `McpAnalysisTools`)
+## 3. Rich-param Tools (always-registered analysis, read-only — `McpAnalysisTools`)
 
-### `Disassemble(addr, count, withBytes?)` 🟢
+This section covers the six always-registered analysis queries. The debugger-domain `assemble` Tool uses the same rich-param form but is documented in §5 because it belongs behind the `enableDebugging` catalog gate.
+
+### `disassemble(addr, count, withBytes?)` 🟢
 
 ```cpp
 [McpServerTool(ReadOnly = true),
@@ -402,7 +406,7 @@ public:
 
 Errors: `not_attached`, `invalid_argument` (count out of range), `not_found` (addr unresolvable), `x64dbg_failed` (unreadable address, disassembly failure, or byte-read failure).
 
-### `MemoryRead(addr, size, compress?)` 🟢
+### `memory_read(addr, size, compress?)` 🟢
 
 ```cpp
 [McpServerTool(ReadOnly = true),
@@ -425,9 +429,11 @@ public:
 };
 ```
 
-When `compress=true`, the client decodes base64 and then runs `LZ4_decompress_safe` (lz4 block format, no frame header) to recover `Size` bytes. The `compress` parameter exists because a single MCP response is bounded; lz4 typically halves typical instruction/data dumps and lets a single call return larger windows. The default is `false` so simple reads stay round-trip-cheap.
+When `compress=true`, the client decodes base64 and then runs `LZ4_decompress_safe` (lz4 block format, no frame header) to recover `Size` bytes. The option can reduce compressible memory windows but does not guarantee a smaller payload; the response reports `CompressedSize` so the client can account for the actual result. The default is `false` so simple reads stay round-trip-cheap.
 
-### `FindPattern(pattern, scope?, maxResults?)` 🟢
+Errors: `not_attached`, `invalid_argument` (size out of range), `not_found` (addr unresolvable), `x64dbg_failed` (memory read failure), `internal` (unexpected lz4 failure).
+
+### `find_pattern(pattern, scope?, maxResults?)` 🟢
 
 ```cpp
 [McpServerTool(ReadOnly = true),
@@ -455,7 +461,7 @@ public:
 };
 ```
 
-### `ParseExpression(expr)` 🟢
+### `parse_expression(expr)` 🟢
 
 ```cpp
 [McpServerTool(ReadOnly = true),
@@ -475,7 +481,7 @@ public:
 };
 ```
 
-### `GetStringAt(addr)` 🟢
+### `get_string_at(addr)` 🟢
 
 ```cpp
 [McpServerTool(ReadOnly = true),
@@ -494,7 +500,7 @@ public:
 };
 ```
 
-### `GetCallStack(threadId?)` 🟡
+### `get_call_stack(threadId?)` 🟡
 
 ```cpp
 [McpServerTool(ReadOnly = true),
@@ -520,36 +526,6 @@ public:
 };
 ```
 
-### `GetRegisterDump(threadId?)` 🟢
-
-Returns all GPRs, segment registers, debug registers, flags, and error status for the active or specified thread.
-
-```cpp
-[McpServerTool(ReadOnly = true),
- Description("Dump all registers, flags, and error status for the active or specified thread.")]
-RegisterDumpResult^ GetRegisterDump(
-    [Description("Thread ID (omit for active thread)")] int threadId
-);
-
-public ref class RegisterDumpResult : McpResult
-{
-public:
-    property int ThreadId;
-    property Dictionary<String^, String^>^ Registers;  // name → hex value (GPRs, segments, debug)
-    property Dictionary<String^, bool>^ Flags;         // "zf" → true, "of" → false, ...
-    property String^ LastError;                        // hex (from TEB)
-    property String^ LastStatus;                       // hex (from TEB)
-};
-```
-
-Registers includes:
-- **x64**: rax, rbx, rcx, rdx, rsi, rdi, rbp, rsp, rip, r8-r15
-- **x86**: eax, ebx, ecx, edx, esi, edi, ebp, esp, eip
-- **Segments**: cs, ds, es, fs, gs, ss
-- **Debug**: dr0, dr1, dr2, dr3, dr6, dr7
-
-Flags includes: zf, of, cf, pf, sf, tf, af, df, if
-
 ---
 
 ## 4. Analysis Mega-tools (fine-grained CRUD — `McpAnalysisTools`)
@@ -558,7 +534,7 @@ Each mega-tool dispatches on `action`. Closed set per tool. The `params` paramet
 
 These analysis-domain tools are always registered. Their catalog may update x64dbg analysis metadata; `enableDebugging` is not a generic write gate. Bulk collection reads live in Resources, while these Tools address or change individual items.
 
-### `Symbols{get}` 🟡
+### `symbols{get}` 🟡
 
 Read-only precise lookup. Symbols are sourced from PDB / PE export tables / x64dbg user data. Bulk enumeration uses `x64dbg://symbols`.
 
@@ -566,7 +542,7 @@ Read-only precise lookup. Symbols are sourced from PDB / PE export tables / x64d
 |---|---|---|
 | `get` | `{ addr: string }` | `SymbolEntry?` |
 
-### `Functions{get, set, delete}` ⚪
+### `functions{get, set, delete}` ⚪
 
 Bulk enumeration uses `x64dbg://functions`.
 
@@ -587,7 +563,7 @@ public:
 };
 ```
 
-### `Labels{get, set, delete, set_batch, delete_batch}` 🟡
+### `labels{get, set, delete, set_batch, delete_batch}` 🟡
 
 Bulk enumeration uses `x64dbg://labels`.
 
@@ -610,15 +586,15 @@ public:
 };
 ```
 
-### `Comments{get, set, delete, set_batch, delete_batch}` ⚪
+### `comments{get, set, delete, set_batch, delete_batch}` ⚪
 
-Same precise-operation pattern as `Labels` (without `temporary`). Bulk enumeration uses `x64dbg://comments`. `CommentEntry { Address, Text, Manual }`.
+Same precise-operation pattern as `labels` (without `temporary`). Bulk enumeration uses `x64dbg://comments`. `CommentEntry { Address, Text, Manual }`.
 
-### `Bookmarks{get, set, delete}` ⚪
+### `bookmarks{get, set, delete}` ⚪
 
 Bulk enumeration uses `x64dbg://bookmarks`. `BookmarkEntry { Address, Manual }`.
 
-### `Xrefs{list_at, add, count_at, type_at}` ⚪
+### `xrefs{list_at, add, count_at, type_at}` ⚪
 
 | Action | Params | Returns |
 |---|---|---|
@@ -643,7 +619,7 @@ public:
 
 These tools are registered only when `McpServerHost::Start(..., enableDebugging: true)`. The flag limits debugger-domain tool-schema growth; it is not a generic read/write or authorization boundary.
 
-### `DebugControl{init, stop, run, pause, Step*, run_command}` 🟡
+### `debug_control{init, stop, run, pause, Step*, run_command}` 🟢
 
 | Action | Params | Notes |
 |---|---|---|
@@ -656,9 +632,11 @@ These tools are registered only when `McpServerHost::Start(..., enableDebugging:
 | `init` | `{ exePath: string, cmdLine?: string, curFolder?: string }` | Loads target executable |
 | `run_command` | `{ command: string, wait?: bool }` | Raw x64dbg command; `wait` uses `DbgCmdExecDirect` |
 
-Returns: `{ success: bool, isDebugging?: bool, isRunning?: bool }` envelope per action.
+Returns a `DebugControlResult` envelope with the echoed `action` and post-dispatch `isDebugging` / `isRunning` snapshot. `commandOutput` is reserved in the current result class but is not populated by the implementation; `run_command` reports command acceptance, not captured console output.
 
-### `Breakpoints{get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}` 🟡
+Errors: `invalid_argument` (unknown action or missing action-specific parameter), `not_attached` (session action without a debuggee), `x64dbg_failed` (x64dbg rejected the dispatched command).
+
+### `breakpoints{get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}` 🟡
 
 Bulk enumeration uses `x64dbg://breakpoints`.
 
@@ -676,18 +654,42 @@ public:
 };
 ```
 
-### `Registers{get, set, dump}` 🟢
+### `registers{get, set, dump}` 🟢
 
 | Action | Params | Returns |
 |---|---|---|
 | `get` | `{ name: string }` | `{ name, value }` — `name` accepts any x64dbg-known register/flag name (rax, eip, zf, r8d…) |
 | `set` | `{ name: string, value: string }` | `{ name, value, previous }` |
-| `dump` | `{ threadId?: int }` | same as `GetRegisterDump` result |
+| `dump` | `{ threadId?: int }` | `RegisterDumpResult` |
 
 `name` is resolved by x64dbg; we do not maintain an enum mirror. See [adr/002-resolve-via-x64dbg-expression.md](adr/002-resolve-via-x64dbg-expression.md).
 For an inactive thread, register values come from its native thread context and require the debuggee to be paused; a running target returns `not_paused`. `lastError` and `lastStatus` may be null when x64dbg does not expose the TEB-derived values for that context.
 
-### `Memory{write, alloc, free}` 🟡
+`registers{action:"dump"}` is the only register-dump Tool; there is no separate `get_register_dump` Tool because it would duplicate the same operation.
+
+```cpp
+public ref class RegisterDumpResult : McpResult
+{
+public:
+    property int ThreadId;
+    property Dictionary<String^, String^>^ Registers;  // name → hex value (GPRs, segments, debug)
+    property Dictionary<String^, bool>^ Flags;         // "zf" → true, "of" → false, ...
+    property String^ LastError;                        // hex (from TEB), nullable for inactive contexts
+    property String^ LastStatus;                       // hex (from TEB), nullable for inactive contexts
+};
+```
+
+Registers includes:
+- **x64**: rax, rbx, rcx, rdx, rsi, rdi, rbp, rsp, rip, r8-r15
+- **x86**: eax, ebx, ecx, edx, esi, edi, ebp, esp, eip
+- **Segments**: cs, ds, es, fs, gs, ss
+- **Debug**: dr0, dr1, dr2, dr3, dr6, dr7
+
+Flags includes: zf, of, cf, pf, sf, tf, af, df, if
+
+Errors: `invalid_argument` (unknown action, missing name/value, invalid value, or negative `threadId`), `not_attached`, `not_found` (unknown register/flag or thread), `not_paused` (inactive-thread dump while running), `x64dbg_failed` (write or native thread-context failure).
+
+### `memory{write, alloc, free}` 🟡
 
 | Action | Params | Returns |
 |---|---|---|
@@ -695,11 +697,11 @@ For an inactive thread, register values come from its native thread context and 
 | `alloc` | `{ size: int, addr?: string }` | `{ address: string, size: int }` |
 | `free` | `{ addr: string }` | `{ freed: bool }` |
 
-### `Threads{get, set_name, set_active, suspend, resume, create_at}` 🟡
+### `threads{get, set_name, set_active, suspend, resume, create_at}` 🟡
 
 Bulk enumeration uses `x64dbg://threads`. Precise thread lookup and debugger control actions live here so they can be omitted from the default tool catalog.
 
-### `Assemble(addr, instruction, fillNops?)` 🟡
+### `assemble(addr, instruction, fillNops?)` 🟡
 
 ```cpp
 [McpServerTool,
@@ -719,7 +721,7 @@ public:
 };
 ```
 
-### `Logging{clear, put}` 🟢
+### `logging{clear, put}` 🟢
 
 ```cpp
 public ref class LoggingActionData
@@ -751,9 +753,9 @@ Errors: `invalid_argument` (unknown action or missing `text` for `put`).
 
 ---
 
-## 6. Reserved Resources (specified but not yet implemented)
+## 6. Reserved Resources (not yet implemented)
 
-The following resources are **reserved** in the URI namespace and specified here for completeness. They are not yet implemented; attempts to access them will return an error or empty response until implementation is complete. Their corresponding Tools perform precise item operations, so this cross-layer pairing follows ADR-003 rather than duplicating the bulk read.
+The following Resource names are **reserved** in the URI namespace. Their current ⚪ entries are target sketches rather than implementation-ready schemas, and none is registered by the current server. Their corresponding Tools perform precise item operations, so this cross-layer pairing follows ADR-003 rather than duplicating the bulk read.
 
 ### `x64dbg://symbols` ⚪
 
@@ -773,7 +775,7 @@ public:
 
 ### `x64dbg://functions` ⚪
 
-Returns `List<FunctionEntry>` across all modules. Pagination via `?offset=&limit=` query params. The entry shape is defined by `Functions{get,set,delete}`.
+Returns `List<FunctionEntry>` across all modules. Pagination via `?offset=&limit=` query params. The entry shape is defined by `functions{get,set,delete}`.
 
 ### `x64dbg://labels` ⚪
 
@@ -845,9 +847,9 @@ public:
 The following PoC-era tools are intentionally **not** exposed in the v0 baseline:
 
 - `Gui*` (GuiMessage, GuiMessageYesNo, GuiSelectionGet/Set, GuiFocusView, GuiRefresh) — UX-coupling, low automation value
-- `Script*` (ScriptLoad, ScriptRun, ScriptAbort, ScriptCmdExec) — superseded by `DebugControl{action:"run_command"}`
+- `Script*` (ScriptLoad, ScriptRun, ScriptAbort, ScriptCmdExec) — superseded by `debug_control{action:"run_command"}`
 - `Watch*` — niche; revisit if user-driven need emerges
-- Per-flag `GetFlag` / `SetFlag` / per-register `GetRegister` / `SetRegister` — covered by `Registers{get,set,dump}` with name-based addressing
+- Per-flag `GetFlag` / `SetFlag` / per-register `GetRegister` / `SetRegister` — covered by `registers{get,set,dump}` with name-based addressing
 
 If a future need arises, propose an ADR before adding back.
 
@@ -860,28 +862,28 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | PoC tool | New form | Note |
 |---|---|---|
 | `GetProjectInfo` | resource `x64dbg://session` | Promoted to navigation root |
-| `GetSymbolList`, `GetSymbolAt` | resource `x64dbg://symbols` + `Symbols{get}` | Bulk list vs precise lookup |
-| `GetFunctionList`, `GetFunctionAt`, `AddFunction`, `DeleteFunction` | resource `x64dbg://functions` + `Functions{get, set, delete}` | Bulk list vs precise CRUD |
-| `GetLabelList`, `GetLabelAt`, `SetLabel`, `DeleteLabel`, `IsLabelTemporary`, `LabelFromString` | resource `x64dbg://labels` + `Labels{...}` | Bulk list vs precise CRUD; `LabelFromString` collapses into `ParseExpression` |
-| `GetCommentList`, `GetCommentAt`, `SetComment`, `DeleteComment` | resource `x64dbg://comments` + `Comments{...}` | Bulk list vs precise CRUD |
-| `GetBookmarkList`, `GetBookmarkAt`, `SetBookmark`, `DeleteBookmark` | resource `x64dbg://bookmarks` + `Bookmarks{...}` | Bulk list vs precise CRUD |
-| `GetXrefs`, `AddXref`, `GetXrefCountAt`, `GetXrefTypeAt` | `Xrefs{...}` | |
+| `GetSymbolList`, `GetSymbolAt` | resource `x64dbg://symbols` + `symbols{get}` | Bulk list vs precise lookup |
+| `GetFunctionList`, `GetFunctionAt`, `AddFunction`, `DeleteFunction` | resource `x64dbg://functions` + `functions{get, set, delete}` | Bulk list vs precise CRUD |
+| `GetLabelList`, `GetLabelAt`, `SetLabel`, `DeleteLabel`, `IsLabelTemporary`, `LabelFromString` | resource `x64dbg://labels` + `labels{...}` | Bulk list vs precise CRUD; `LabelFromString` collapses into `parse_expression` |
+| `GetCommentList`, `GetCommentAt`, `SetComment`, `DeleteComment` | resource `x64dbg://comments` + `comments{...}` | Bulk list vs precise CRUD |
+| `GetBookmarkList`, `GetBookmarkAt`, `SetBookmark`, `DeleteBookmark` | resource `x64dbg://bookmarks` + `bookmarks{...}` | Bulk list vs precise CRUD |
+| `GetXrefs`, `AddXref`, `GetXrefCountAt`, `GetXrefTypeAt` | `xrefs{...}` | |
 | `GetModuleList`, `GetMainModuleInfo`, `GetModuleByAddr`, `GetModuleByName`, `GetMainModuleSectionList`, `GetSectionListByAddr`, `GetSectionListByName`, `GetExports`, `GetImports` | resources `x64dbg://modules/...` | All become URI-addressable |
-| `IsValidPtr`, `GetMemoryMaps`, `GetMemoryBase`, `GetMemorySize` | resource `x64dbg://memory/maps` + tool `ParseExpression` | Most queries reduce to expression resolution |
-| `MemoryRead` | tool `MemoryRead` | Added optional `compress` (lz4) for large reads |
+| `IsValidPtr`, `GetMemoryMaps`, `GetMemoryBase`, `GetMemorySize` | resource `x64dbg://memory/maps` + tool `parse_expression` | Most queries reduce to expression resolution |
+| `MemoryRead` | tool `memory_read` | Added optional `compress` (lz4) for large reads |
 | `GetThreadList` | resource `x64dbg://threads` | |
-| `Disassemble` | tool `Disassemble` | Same name, raised `count` ceiling |
-| `FindPattern` | tool `FindPattern` | Added `scope`, `maxResults` |
-| `InitDebug` | `DebugControl{action:"init"}` | |
-| `ParseExpression`, `ResolveLabel`, `GetStringAt` | tools `ParseExpression`, `GetStringAt` | `ResolveLabel` collapses into `ParseExpression` |
-| `IsDebugging`, `IsRunning`, ..., `RunCommand` | `DebugControl{...}` | |
-| `GetBreakpointList`, `SetBreakpoint`, `DeleteBreakpoint`, `DisableBreakpoint`, `SetHardwareBreakpoint`, `DeleteHardwareBreakpoint` | resource `x64dbg://breakpoints` + `Breakpoints{...}` | Bulk list vs precise control |
-| `GetFlag`, `SetFlag`, `GetRegister`, `SetRegister`, `GetRegisterDump` | `Registers{...}` + tool `GetRegisterDump` | Name-based, no enum mirror |
-| `MemoryWrite`, `MemoryAlloc`, `MemoryFree` | `Memory{...}` | |
-| `GetCallStack` | tool `GetCallStack` | |
-| `SetThreadName`, `SetActiveThread`, `SuspendThread`, `ResumeThread`, `CreateThread` | `Threads{...}` | |
-| `Assemble` | tool `Assemble` | Added `fillNops` |
-| `LogPuts` | `Logging{action:"put"}` | `x64dbg://logging` supplies the read snapshot; `Logging{action:"clear"}` adds the matching clear action |
-| `Gui*`, `Script*`, `*Watch*` | (excluded) | See §6 |
+| `Disassemble` | tool `disassemble` | Same operation, raised `count` ceiling |
+| `FindPattern` | tool `find_pattern` | Added `scope`, `maxResults` |
+| `InitDebug` | `debug_control{action:"init"}` | |
+| `ParseExpression`, `ResolveLabel`, `GetStringAt` | tools `parse_expression`, `get_string_at` | `ResolveLabel` collapses into `parse_expression` |
+| `IsDebugging`, `IsRunning`, ..., `RunCommand` | `debug_control{...}` | |
+| `GetBreakpointList`, `SetBreakpoint`, `DeleteBreakpoint`, `DisableBreakpoint`, `SetHardwareBreakpoint`, `DeleteHardwareBreakpoint` | resource `x64dbg://breakpoints` + `breakpoints{...}` | Bulk list vs precise control |
+| `GetFlag`, `SetFlag`, `GetRegister`, `SetRegister`, `GetRegisterDump` | `registers{get,set,dump}` | Name-based, no enum mirror; register dump has one Tool surface only |
+| `MemoryWrite`, `MemoryAlloc`, `MemoryFree` | `memory{...}` | |
+| `GetCallStack` | tool `get_call_stack` | |
+| `SetThreadName`, `SetActiveThread`, `SuspendThread`, `ResumeThread`, `CreateThread` | `threads{...}` | |
+| `Assemble` | tool `assemble` | Added `fillNops` |
+| `LogPuts` | `logging{action:"put"}` | `x64dbg://logging` supplies the read snapshot; `logging{action:"clear"}` adds the matching clear action |
+| `Gui*`, `Script*`, `*Watch*` | (excluded) | See §7 |
 
-Target surface: **~19 resources + 7 rich-param tools + 13 mega-tools = ~39 entries**. Only the 20 Tool definitions consume the AI tool-schema budget; with the debugger-domain catalog disabled, the default Tool catalog is ~13 definitions (PoC was 50+).
+Target surface: **19 Resources + 7 rich-param Tools (including gated `assemble`) + 12 action-mega Tools = 38 entries**. Only the 19 Tool definitions consume the AI tool-schema budget; with the debugger-domain catalog disabled, the default Tool catalog is 12 definitions (PoC was 50+).

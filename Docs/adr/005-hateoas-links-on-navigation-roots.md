@@ -2,6 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-24
+- **Amended**: 2026-08-10
 - **Deciders**: @nblog
 
 ## Context
@@ -24,8 +25,9 @@ Putting `_links` on every disassembly entry would inflate response size by ~30% 
 
 ### Carry `_links`
 
-- `x64dbg://session` (and `GetProjectInfo` if exposed as tool) — points to process/modules/memory/threads/system snapshots/logging
-- `x64dbg://modules` (top-level) and `x64dbg://modules/{name}` (per-module entry) — point to sections/exports/imports, and to `Disassemble` for the entry point; list items carry only `_links.self`
+- `x64dbg://session` — points to process/modules/memory/threads/system snapshots/logging
+- `x64dbg://process` — points back to the session and to process-scoped module/memory/thread/system snapshots
+- `x64dbg://modules` (top-level) and `x64dbg://modules/{name}` (per-module entry) — point to sections/exports/imports, and to `disassemble` for the entry point; list items carry only `_links.self`
 - `x64dbg://memory/maps` (top-level) — points to per-region details if expanded
 - `x64dbg://windows` (top-level) — snapshot of debuggee windows
 - `x64dbg://handles` (top-level) — snapshot of debuggee handles
@@ -50,7 +52,7 @@ Putting `_links` on every disassembly entry would inflate response size by ~30% 
     "self":     { "uri": "x64dbg://modules/target.exe" },
     "sections": { "uri": "x64dbg://modules/target.exe/sections" },
     "entry_disasm": {
-      "tool": "Disassemble",
+      "tool": "disassemble",
       "args": { "addr": "0x140001000", "count": 30 }
     }
   }
