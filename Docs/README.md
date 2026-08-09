@@ -10,9 +10,15 @@
 
 x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [Model Context Protocol](https://modelcontextprotocol.io) 把动态调试能力以"AI 友好"的形态暴露给 MCP 客户端（Claude Code、Codex 等）。
 
-- **运行形态**: x64dbg 插件 (`.dp32`/`.dp64`)，通过 x64dbg 命令 `mcp.start [port=3001],[host=localhost]` 启动嵌入式 MCP HTTP server
+- **运行形态**: x64dbg 插件 (`.dp32`/`.dp64`)，通过 x64dbg 命令 `mcp.start [port=3001],[host=localhost],[enableDebugging]` 启动嵌入式 MCP HTTP server
 - **技术栈**: C++/CLI (`CLRSupport=NetCore`) + ASP.NET Core (`WebApplication.CreateSlimBuilder`) + [ModelContextProtocol](https://github.com/modelcontextprotocol/csharp-sdk)
 - **目标客户端**: 任何遵守 MCP 规范的 Agent；默认 loopback only，安全边界由本机约束
+
+---
+
+## 进程闭环验证
+
+当一项变更需要在真实 x64dbg 与被调试进程中完成闭环验证时，可按 [mcporter Quick start](https://github.com/openclaw/mcporter#quick-start) 将 mcporter 用作本地 x64dbgMCP 客户端。先用 `list` 确认服务与目录可发现，再用 `call` 执行 Tool、用 `resource` 枚举并读取 Resource；工具调用成功只证明请求已受理，仍应以 Resource 返回的调试会话、进程状态和待测领域数据确认行为实际生效。
 
 ---
 
@@ -38,6 +44,7 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 | [architecture.md](architecture.md) | 架构总览：进程/线程模型、组件分层、数据流、生命周期 |
 | [conventions.md](conventions.md) | 编码与契约约定：命名、地址格式、错误语义、返回 envelope、HATEOAS |
 | [tools-spec.md](tools-spec.md) | MCP Tool 与 Resource 契约骨架（输入/输出 schema、错误条件） |
+| [implementation-status.md](implementation-status.md) | 当前实现覆盖率、验证边界、临时实验偏离与下一批实施顺序 |
 | [adr/](adr/) | Architecture Decision Records — 关键设计决策的可追溯快照 |
 | [references.md](references.md) | 外部参考索引：x64dbg SDK 头、MCP 规范、ASP.NET Core 配置 |
 
@@ -50,14 +57,3 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 3. **One authoritative source** — 同一信息只在一处定义，其它地方用链接引用。例如返回 envelope 形态在 [conventions.md](conventions.md#返回结构) 定义，[tools-spec.md](tools-spec.md) 只引用不重复。
 4. **Decisions are first-class** — 设计选择走 [ADR](adr/)。代码注释只解释"为什么这里反直觉"，不承载决策本体。
 5. **语言混合**: README/ADR 用中文（讨论密度高）；conventions/tools-spec 用英文（贴近代码）。
-
----
-
-## TODO 清单
-
-- Docs 骨架 + 关键 ADR (001–005)
-- tools-spec.md 工具/资源完整列举与 schema
-- x64dbgHandler.h 按新设计重构（三层切分）
-- 单测/集成测策略（待 ADR）
-
-进度详见 [adr/](adr/) 与各 spec 文件中标记的 `TODO`。

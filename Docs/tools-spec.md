@@ -49,7 +49,7 @@ public ref class McpResult : McpResult                        // pseudo-syntax; 
 {
 public:
     property T Data;
-    property PageInfo^ Page;                                  // list-shaped tools only
+    property PageInfo^ Page;                                  // list-shaped payloads only
 };
 ```
 
@@ -60,6 +60,8 @@ public:
 ## 2. Resources
 
 All resources use the URI scheme `x64dbg://`. Resources are defined on a single `[McpServerResourceType]` class (e.g. `McpResources`).
+
+Resources are the read-only bulk surface: they return compact snapshots or collections that an agent can scan quickly. A Tool may exist for the same domain when it performs a precise item read or update; the Resource and Tool must not duplicate an equivalent operation.
 
 ### `x64dbg://session` 🟢
 
@@ -74,9 +76,22 @@ public:
     property String^ X64dbgDirectory;   // BridgeUserDirectory()
     property bool IsDebugging;
     property bool IsRunning;
-    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/maps, threads, windows, handles, tcpconnections
+    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/maps, threads, windows, handles, tcpconnections, logging
 };
 ```
+
+### `x64dbg://logging` 🟢
+
+Plain-text snapshot of the current x64dbg Log view. The Resource uses MIME type
+`text/plain`, does not require an active debug session, and returns the rendered log text
+without a JSON envelope or `_links`.
+
+The implementation calls `GuiLogSave` on the GUI thread, reads the resulting UTF-8 file,
+and immediately deletes the unique temporary file after a successful read. `GuiLogSave`'s
+own status message is suppressed so reading the Resource does not append a breadcrumb to
+the log being observed.
+Messages that x64dbg still holds in its private LogView buffer while the Log tab is hidden
+are outside this rendered snapshot until upstream displays the tab and flushes that buffer.
 
 ### `x64dbg://process` 🟢
 
@@ -103,10 +118,13 @@ public:
 
 ### `x64dbg://modules` 🟢
 
-List of all loaded modules in the debugged process, wrapped in `ModulesPayload` so the
-collection can carry navigation links without repeating them on every response field.
+Paged list of loaded modules in the debugged process. The URI template is
+`x64dbg://modules{?offset,limit}`; `offset` defaults to `0`, `limit` defaults to `100`,
+and the server clamps `limit` to `1–100`. The collection is wrapped in `ModulesPayload`
+so pagination and navigation metadata are not repeated on every item.
 
 - `Data` contains `ModuleInfo` entries with `_links.self` set per item to `x64dbg://modules/{name}`.
+- `Page` follows [conventions.md §7](conventions.md#7-pagination--bulk-parameters).
 - Empty list when not debugging (not an error).
 
 ### `x64dbg://modules/{name}` 🟢
@@ -129,7 +147,8 @@ public ref class ModulesPayload
 {
 public:
     property List<ModuleInfo^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session
+    property PageInfo^ Page;
+    property Dictionary<String^, LinkRef^>^ Links;  // self, next?, prev?, session
 };
 ```
 
@@ -381,7 +400,7 @@ public:
 };
 ```
 
-Errors: `not_attached`, `invalid_argument` (count out of range), `not_found` (addr unresolvable).
+Errors: `not_attached`, `invalid_argument` (count out of range), `not_found` (addr unresolvable), `x64dbg_failed` (unreadable address, disassembly failure, or byte-read failure).
 
 ### `MemoryRead(addr, size, compress?)` 🟢
 
@@ -533,24 +552,26 @@ Flags includes: zf, of, cf, pf, sf, tf, af, df, if
 
 ---
 
-## 4. Mega-tools (CRUD Families — `McpAnalysisTools`)
+## 4. Analysis Mega-tools (fine-grained CRUD — `McpAnalysisTools`)
 
 Each mega-tool dispatches on `action`. Closed set per tool. The `params` parameter object varies by action; document each variant. Returned `Data` shape varies by action — declare per-action result classes.
 
-### `Symbols{list, get}` 🟡
+These analysis-domain tools are always registered. Their catalog may update x64dbg analysis metadata; `enableDebugging` is not a generic write gate. Bulk collection reads live in Resources, while these Tools address or change individual items.
 
-Read-only. Symbols are sourced from PDB / PE export tables / x64dbg user data.
+### `Symbols{get}` 🟡
+
+Read-only precise lookup. Symbols are sourced from PDB / PE export tables / x64dbg user data. Bulk enumeration uses `x64dbg://symbols`.
 
 | Action | Params | Returns |
 |---|---|---|
-| `list` | `{ module?: string, offset?: int, limit?: int }` | `List<SymbolEntry>` + `Page` |
 | `get` | `{ addr: string }` | `SymbolEntry?` |
 
-### `Functions{list, get, set, delete}` ⚪
+### `Functions{get, set, delete}` ⚪
+
+Bulk enumeration uses `x64dbg://functions`.
 
 | Action | Params | Returns |
 |---|---|---|
-| `list` | `{ module?: string, offset?: int, limit?: int }` | `List<FunctionEntry>` + `Page` |
 | `get` | `{ addr: string }` | `FunctionEntry?` |
 | `set` | `{ start: string, end: string, manual?: bool }` | `FunctionEntry` (created/updated) |
 | `delete` | `{ addr: string }` | `{ deleted: bool }` |
@@ -566,11 +587,12 @@ public:
 };
 ```
 
-### `Labels{list, get, set, delete, set_batch, delete_batch}` 🟡
+### `Labels{get, set, delete, set_batch, delete_batch}` 🟡
+
+Bulk enumeration uses `x64dbg://labels`.
 
 | Action | Params | Returns |
 |---|---|---|
-| `list` | `{ module?: string, offset?: int, limit?: int }` | `List<LabelEntry>` + `Page` |
 | `get` | `{ addr: string }` | `LabelEntry?` |
 | `set` | `{ addr: string, text: string, manual?: bool, temporary?: bool }` | `LabelEntry` |
 | `delete` | `{ addr: string }` | `{ deleted: bool }` |
@@ -588,13 +610,13 @@ public:
 };
 ```
 
-### `Comments{list, get, set, delete, set_batch, delete_batch}` ⚪
+### `Comments{get, set, delete, set_batch, delete_batch}` ⚪
 
-Same shape pattern as `Labels` (without `temporary`). `CommentEntry { Address, Text, Manual }`.
+Same precise-operation pattern as `Labels` (without `temporary`). Bulk enumeration uses `x64dbg://comments`. `CommentEntry { Address, Text, Manual }`.
 
-### `Bookmarks{list, get, set, delete}` ⚪
+### `Bookmarks{get, set, delete}` ⚪
 
-`BookmarkEntry { Address, Manual }`.
+Bulk enumeration uses `x64dbg://bookmarks`. `BookmarkEntry { Address, Manual }`.
 
 ### `Xrefs{list_at, add, count_at, type_at}` ⚪
 
@@ -617,9 +639,9 @@ public:
 
 ---
 
-## 5. Debug-mode Tools (state-mutating — `McpDebuggingTools`)
+## 5. Debugger-domain Tools (conditionally registered — `McpDebuggingTools`)
 
-These tools are registered only when `McpServerHost::Start(..., enableDebugging: true)`.
+These tools are registered only when `McpServerHost::Start(..., enableDebugging: true)`. The flag limits debugger-domain tool-schema growth; it is not a generic read/write or authorization boundary.
 
 ### `DebugControl{init, stop, run, pause, Step*, run_command}` 🟡
 
@@ -636,7 +658,9 @@ These tools are registered only when `McpServerHost::Start(..., enableDebugging:
 
 Returns: `{ success: bool, isDebugging?: bool, isRunning?: bool }` envelope per action.
 
-### `Breakpoints{list, get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}` 🟡
+### `Breakpoints{get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}` 🟡
+
+Bulk enumeration uses `x64dbg://breakpoints`.
 
 ```cpp
 public ref class BreakpointEntry
@@ -661,6 +685,7 @@ public:
 | `dump` | `{ threadId?: int }` | same as `GetRegisterDump` result |
 
 `name` is resolved by x64dbg; we do not maintain an enum mirror. See [adr/002-resolve-via-x64dbg-expression.md](adr/002-resolve-via-x64dbg-expression.md).
+For an inactive thread, register values come from its native thread context and require the debuggee to be paused; a running target returns `not_paused`. `lastError` and `lastStatus` may be null when x64dbg does not expose the TEB-derived values for that context.
 
 ### `Memory{write, alloc, free}` 🟡
 
@@ -670,9 +695,9 @@ public:
 | `alloc` | `{ size: int, addr?: string }` | `{ address: string, size: int }` |
 | `free` | `{ addr: string }` | `{ freed: bool }` |
 
-### `Threads{list, get, set_name, set_active, suspend, resume, create_at}` 🟡
+### `Threads{get, set_name, set_active, suspend, resume, create_at}` 🟡
 
-`list` shape mirrors `x64dbg://threads`. State-mutating actions are here so analysis-only mode does not expose them.
+Bulk enumeration uses `x64dbg://threads`. Precise thread lookup and debugger control actions live here so they can be omitted from the default tool catalog.
 
 ### `Assemble(addr, instruction, fillNops?)` 🟡
 
@@ -694,21 +719,41 @@ public:
 };
 ```
 
-### `LogPuts(text)` 🟢
+### `Logging{clear, put}` 🟢
 
 ```cpp
+public ref class LoggingActionData
+{
+public:
+    property String^ Action;
+};
+
+public ref class LoggingResult : McpResult
+{
+public:
+    property LoggingActionData^ Data;
+};
+
 [McpServerTool,
- Description("Write a line to the x64dbg log window.")]
-LogPutsResult^ LogPuts([Description("Text to log")] String^ text);
+ Description("Manage the x64dbg log window.")]
+LoggingResult^ Logging(
+    [Description("Action: \"clear\" | \"put\"")] String^ action,
+    [Description("Text to append as a line (required for action=put)")] String^ text
+);
 ```
 
-Trivial wrapper; useful for AI to leave breadcrumbs in the debugger UI.
+| Action | Params | Native API | Notes |
+|---|---|---|---|
+| `clear` | — | `GuiLogClear()` | Direct call; does not require a debug session. |
+| `put` | `{ text: string }` | `_plugin_logputs()` | Appends `text` as one line; `text` is required. |
+
+Errors: `invalid_argument` (unknown action or missing `text` for `put`).
 
 ---
 
 ## 6. Reserved Resources (specified but not yet implemented)
 
-The following resources are **reserved** in the URI namespace and specified here for completeness. They are not yet implemented; attempts to access them will return an error or empty response until implementation is complete.
+The following resources are **reserved** in the URI namespace and specified here for completeness. They are not yet implemented; attempts to access them will return an error or empty response until implementation is complete. Their corresponding Tools perform precise item operations, so this cross-layer pairing follows ADR-003 rather than duplicating the bulk read.
 
 ### `x64dbg://symbols` ⚪
 
@@ -725,6 +770,10 @@ public:
     property String^ Type;           // "import" | "export" | "user" | "auto"
 };
 ```
+
+### `x64dbg://functions` ⚪
+
+Returns `List<FunctionEntry>` across all modules. Pagination via `?offset=&limit=` query params. The entry shape is defined by `Functions{get,set,delete}`.
 
 ### `x64dbg://labels` ⚪
 
@@ -811,11 +860,11 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | PoC tool | New form | Note |
 |---|---|---|
 | `GetProjectInfo` | resource `x64dbg://session` | Promoted to navigation root |
-| `GetSymbolList`, `GetSymbolAt` | `Symbols{list, get}` | |
-| `GetFunctionList`, `GetFunctionAt`, `AddFunction`, `DeleteFunction` | `Functions{list, get, set, delete}` | |
-| `GetLabelList`, `GetLabelAt`, `SetLabel`, `DeleteLabel`, `IsLabelTemporary`, `LabelFromString` | `Labels{...}` | `LabelFromString` collapses into `ParseExpression` |
-| `GetCommentList`, `GetCommentAt`, `SetComment`, `DeleteComment` | `Comments{...}` | |
-| `GetBookmarkList`, `GetBookmarkAt`, `SetBookmark`, `DeleteBookmark` | `Bookmarks{...}` | |
+| `GetSymbolList`, `GetSymbolAt` | resource `x64dbg://symbols` + `Symbols{get}` | Bulk list vs precise lookup |
+| `GetFunctionList`, `GetFunctionAt`, `AddFunction`, `DeleteFunction` | resource `x64dbg://functions` + `Functions{get, set, delete}` | Bulk list vs precise CRUD |
+| `GetLabelList`, `GetLabelAt`, `SetLabel`, `DeleteLabel`, `IsLabelTemporary`, `LabelFromString` | resource `x64dbg://labels` + `Labels{...}` | Bulk list vs precise CRUD; `LabelFromString` collapses into `ParseExpression` |
+| `GetCommentList`, `GetCommentAt`, `SetComment`, `DeleteComment` | resource `x64dbg://comments` + `Comments{...}` | Bulk list vs precise CRUD |
+| `GetBookmarkList`, `GetBookmarkAt`, `SetBookmark`, `DeleteBookmark` | resource `x64dbg://bookmarks` + `Bookmarks{...}` | Bulk list vs precise CRUD |
 | `GetXrefs`, `AddXref`, `GetXrefCountAt`, `GetXrefTypeAt` | `Xrefs{...}` | |
 | `GetModuleList`, `GetMainModuleInfo`, `GetModuleByAddr`, `GetModuleByName`, `GetMainModuleSectionList`, `GetSectionListByAddr`, `GetSectionListByName`, `GetExports`, `GetImports` | resources `x64dbg://modules/...` | All become URI-addressable |
 | `IsValidPtr`, `GetMemoryMaps`, `GetMemoryBase`, `GetMemorySize` | resource `x64dbg://memory/maps` + tool `ParseExpression` | Most queries reduce to expression resolution |
@@ -826,13 +875,13 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | `InitDebug` | `DebugControl{action:"init"}` | |
 | `ParseExpression`, `ResolveLabel`, `GetStringAt` | tools `ParseExpression`, `GetStringAt` | `ResolveLabel` collapses into `ParseExpression` |
 | `IsDebugging`, `IsRunning`, ..., `RunCommand` | `DebugControl{...}` | |
-| `GetBreakpointList`, `SetBreakpoint`, `DeleteBreakpoint`, `DisableBreakpoint`, `SetHardwareBreakpoint`, `DeleteHardwareBreakpoint` | `Breakpoints{...}` | |
+| `GetBreakpointList`, `SetBreakpoint`, `DeleteBreakpoint`, `DisableBreakpoint`, `SetHardwareBreakpoint`, `DeleteHardwareBreakpoint` | resource `x64dbg://breakpoints` + `Breakpoints{...}` | Bulk list vs precise control |
 | `GetFlag`, `SetFlag`, `GetRegister`, `SetRegister`, `GetRegisterDump` | `Registers{...}` + tool `GetRegisterDump` | Name-based, no enum mirror |
 | `MemoryWrite`, `MemoryAlloc`, `MemoryFree` | `Memory{...}` | |
 | `GetCallStack` | tool `GetCallStack` | |
 | `SetThreadName`, `SetActiveThread`, `SuspendThread`, `ResumeThread`, `CreateThread` | `Threads{...}` | |
 | `Assemble` | tool `Assemble` | Added `fillNops` |
-| `LogPuts` | tool `LogPuts` | |
+| `LogPuts` | `Logging{action:"put"}` | `x64dbg://logging` supplies the read snapshot; `Logging{action:"clear"}` adds the matching clear action |
 | `Gui*`, `Script*`, `*Watch*` | (excluded) | See §6 |
 
-Net surface estimate: **~7 resources + ~7 rich-param tools + ~9 mega-tools ≈ 23 entries** (PoC was ~50+).
+Target surface: **~19 resources + 7 rich-param tools + 13 mega-tools = ~39 entries**. Only the 20 Tool definitions consume the AI tool-schema budget; with the debugger-domain catalog disabled, the default Tool catalog is ~13 definitions (PoC was 50+).

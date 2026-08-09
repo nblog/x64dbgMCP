@@ -24,17 +24,18 @@ Putting `_links` on every disassembly entry would inflate response size by ~30% 
 
 ### Carry `_links`
 
-- `x64dbg://session` (and `GetProjectInfo` if exposed as tool) — points to modules/memory/threads
-- `x64dbg://modules` (top-level) and `x64dbg://modules/{name}` (per-module entry) — point to sections/exports/imports, and to `Disassemble` for the entry point
+- `x64dbg://session` (and `GetProjectInfo` if exposed as tool) — points to process/modules/memory/threads/system snapshots/logging
+- `x64dbg://modules` (top-level) and `x64dbg://modules/{name}` (per-module entry) — point to sections/exports/imports, and to `Disassemble` for the entry point; list items carry only `_links.self`
 - `x64dbg://memory/maps` (top-level) — points to per-region details if expanded
 - `x64dbg://windows` (top-level) — snapshot of debuggee windows
 - `x64dbg://handles` (top-level) — snapshot of debuggee handles
 - `x64dbg://tcpconnections` (top-level) — snapshot of debuggee TCP connections
-- `Breakpoints{action:"list"}`, `Threads{action:"list"}` — top-level list returns
+- `x64dbg://breakpoints`, `x64dbg://threads` — top-level bulk list Resources
 - Pagination wrappers (`Page` field is present) — the envelope-level `_links.next/prev/self` for paginated tools
 
 ### Do **not** carry `_links`
 
+- `x64dbg://logging` — the complete plain-text Log view is a leaf
 - Per-instruction entries in `DisassembleResult.Data`
 - Per-region entries in memory map results
 - Per-symbol/export/import entries in module child resources

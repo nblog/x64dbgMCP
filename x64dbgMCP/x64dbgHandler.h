@@ -2,9 +2,12 @@
 
 #include "plugintemplate/pluginmain.h"
 #include "plugintemplate/pluginsdk/lz4/lz4.h"
+#include <chrono>
 #include <cstddef>
+#include <future>
 #include <msclr/marshal.h>
 #include <msclr/marshal_cppstd.h>
+#include <string>
 #include <winternl.h>
 #include <vector>
 
@@ -13,6 +16,8 @@ namespace x64dbgMCP {
     using namespace System;
     using namespace System::Collections::Generic;
     using namespace System::ComponentModel;
+    using namespace System::Globalization;
+    using namespace System::IO;
     using namespace System::Runtime::InteropServices;
     using namespace System::Text;
     using namespace System::Text::Json;
@@ -316,6 +321,9 @@ namespace x64dbgMCP {
     public:
         [JsonPropertyName("data")] property List<ModuleInfo^>^ Data;
 
+        [JsonPropertyName("page")]
+        property PageInfo^ Page;
+
         [JsonPropertyName("_links")]
         [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
         property Dictionary<String^, LinkRef^>^ Links;
@@ -495,10 +503,10 @@ namespace x64dbgMCP {
         [JsonPropertyName("elevated")]          property bool Elevated;
         [JsonPropertyName("processId")]         property int ProcessId;
         [JsonPropertyName("threadId")]          property int ThreadId;
-        [JsonPropertyName("base")]              property String^ ImageBase;
-        [JsonPropertyName("entry")]             property String^ EntryPoint;
-        [JsonPropertyName("peb")]               property String^ PebAddress;
-        [JsonPropertyName("teb")]               property String^ TebAddress;
+        [JsonPropertyName("imageBase")]         property String^ ImageBase;
+        [JsonPropertyName("entryPoint")]        property String^ EntryPoint;
+        [JsonPropertyName("pebAddress")]        property String^ PebAddress;
+        [JsonPropertyName("tebAddress")]        property String^ TebAddress;
         //[JsonPropertyName("kUserSharedData")]   property String^ KUserSharedData;
         [JsonPropertyName("path")]              property String^ Path;
         [JsonPropertyName("commandLine")]       property String^ CommandLine;
@@ -596,6 +604,21 @@ namespace x64dbgMCP {
         property String^ Previous;
     };
 
+    public ref class LoggingActionData
+    {
+    public:
+        [JsonPropertyName("action")]
+        property String^ Action;
+    };
+
+    public ref class LoggingResult : McpResult
+    {
+    public:
+        [JsonPropertyName("data")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property LoggingActionData^ Data;
+    };
+
     public ref class RegisterDumpResult : McpResult
     {
     public:
@@ -616,6 +639,25 @@ namespace x64dbgMCP {
         [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
         property String^ LastStatus;
     };
+
+#pragma unmanaged
+    struct LogSaveContext
+    {
+        std::string path;
+        std::promise<void> completion;
+    };
+
+    static void SaveLogOnGuiThread(void* userData)
+    {
+        auto context = static_cast<LogSaveContext*>(userData);
+        {
+            GuiDisableLogScope suppressSaveMessage;
+            GuiLogSave(context->path.c_str());
+        }
+        context->completion.set_value();
+        delete context;
+    }
+#pragma managed
 
     // ────────────────────────────────────────────────────────────────
     //  Resources — McpResources (ADR-003 Layer A)
@@ -644,8 +686,35 @@ namespace x64dbgMCP {
             info->Links["windows"] = Helpers::UriLink("x64dbg://windows");
             info->Links["handles"] = Helpers::UriLink("x64dbg://handles");
             info->Links["tcpconnections"] = Helpers::UriLink("x64dbg://tcpconnections");
+            info->Links["logging"] = Helpers::UriLink("x64dbg://logging");
 
             return MakeJson(info, "x64dbg://session");
+        }
+
+        [McpServerResource(UriTemplate = "x64dbg://logging", Name = "logging", MimeType = "text/plain")]
+        [Description("Plain-text snapshot of the current x64dbg log window.")]
+        static ResourceContents^ Logging()
+        {
+            String^ path = Path::GetTempFileName();
+            auto context = new LogSaveContext();
+            IntPtr utf8Path = Marshal::StringToCoTaskMemUTF8(path);
+            context->path = static_cast<const char*>(utf8Path.ToPointer());
+            Marshal::FreeCoTaskMem(utf8Path);
+
+            std::future<void> completion = context->completion.get_future();
+            // GuiLogSave must run on the GUI thread before the temporary file is read.
+            GuiExecuteOnGuiThreadEx(SaveLogOnGuiThread, context);
+            if (completion.wait_for(std::chrono::seconds(5)) != std::future_status::ready)
+                throw gcnew TimeoutException("Timed out while saving the x64dbg log window");
+
+            String^ text = File::ReadAllText(path, gcnew UTF8Encoding(false, true));
+            File::Delete(path);
+
+            auto contents = gcnew TextResourceContents();
+            contents->Text = text;
+            contents->MimeType = "text/plain";
+            contents->Uri = "x64dbg://logging";
+            return contents;
         }
 
         [McpServerResource(UriTemplate = "x64dbg://process", Name = "process", MimeType = "application/json")]
@@ -759,14 +828,27 @@ namespace x64dbgMCP {
             return MakeJson(info, "x64dbg://process");
         }
 
-        [McpServerResource(UriTemplate = "x64dbg://modules", Name = "modules", MimeType = "application/json")]
-        [Description("List of all loaded modules in the debugged process. Empty when not debugging.")]
-        static ResourceContents^ Modules()
+#pragma warning(push)
+#pragma warning(disable: 4965)
+        [McpServerResource(UriTemplate = "x64dbg://modules{?offset,limit}", Name = "modules", MimeType = "application/json")]
+        [Description("Paged list of loaded modules in the debugged process. Empty when not debugging.")]
+        static ResourceContents^ Modules(RequestContext<ReadResourceRequestParams^>^ requestContext)
         {
+            String^ requestUri = requestContext != nullptr && requestContext->Params != nullptr
+                ? requestContext->Params->Uri
+                : "x64dbg://modules";
+            // C++/CLI does not emit CLR constants for optional parameters, so parse
+            // URI-template query values directly instead of relying on SDK binding.
+            int pageOffset = Math::Max(0, QueryInt(requestUri, "offset", 0));
+            int pageLimit = Math::Min(Math::Max(1, QueryInt(requestUri, "limit", 100)), 100);
+
             auto payload = gcnew ModulesPayload();
             payload->Data = gcnew List<ModuleInfo^>();
+            payload->Page = gcnew PageInfo();
+            payload->Page->Offset = pageOffset;
+            payload->Page->Limit = pageLimit;
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
-            payload->Links["self"] = Helpers::UriLink("x64dbg://modules");
+            payload->Links["self"] = Helpers::UriLink(ModulesPageUri(pageOffset, pageLimit));
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
 
             if (DbgIsDebugging())
@@ -775,15 +857,24 @@ namespace x64dbgMCP {
                 if (Script::Module::GetList(&list))
                 {
                     duint mainBase = Script::Module::GetMainModuleBase();
-                    for (int i = 0; i < list.Count(); i++)
+                    payload->Page->Total = list.Count();
+                    int end = Math::Min(list.Count(), pageOffset + pageLimit);
+                    for (int i = Math::Min(pageOffset, list.Count()); i < end; i++)
                     {
-                        payload->Data->Add(MakeModuleInfo(list[i], mainBase));
+                        payload->Data->Add(MakeModuleInfo(list[i], mainBase, false));
                     }
                 }
             }
 
-            return MakeJson(payload, "x64dbg://modules");
+            payload->Page->HasMore = pageOffset + payload->Data->Count < payload->Page->Total;
+            if (payload->Page->HasMore)
+                payload->Links["next"] = Helpers::UriLink(ModulesPageUri(pageOffset + pageLimit, pageLimit));
+            if (pageOffset > 0)
+                payload->Links["prev"] = Helpers::UriLink(ModulesPageUri(Math::Max(0, pageOffset - pageLimit), pageLimit));
+
+            return MakeJson(payload, requestUri);
         }
+#pragma warning(pop)
 
         [McpServerResource(UriTemplate = "x64dbg://modules/{name}", Name = "module", MimeType = "application/json")]
         [Description("Information and navigation links for one loaded module.")]
@@ -793,7 +884,7 @@ namespace x64dbgMCP {
         {
             Script::Module::ModuleInfo nativeModule{};
             RequireModule(name, &nativeModule);
-            auto info = MakeModuleInfo(nativeModule, Script::Module::GetMainModuleBase());
+            auto info = MakeModuleInfo(nativeModule, Script::Module::GetMainModuleBase(), true);
             return MakeJson(info, ModuleUri(info->Name));
         }
 
@@ -1076,9 +1167,38 @@ namespace x64dbgMCP {
         }
 
     private:
+        static int QueryInt(String^ uri, String^ name, int fallback)
+        {
+            auto parsed = gcnew Uri(uri);
+            String^ query = parsed->Query;
+            if (String::IsNullOrEmpty(query))
+                return fallback;
+
+            for each (String^ pair in query->Substring(1)->Split(L'&'))
+            {
+                int separator = pair->IndexOf(L'=');
+                String^ key = separator < 0 ? pair : pair->Substring(0, separator);
+                if (Uri::UnescapeDataString(key) != name)
+                    continue;
+
+                String^ value = separator < 0 ? "" : pair->Substring(separator + 1);
+                return Int32::Parse(
+                    Uri::UnescapeDataString(value),
+                    NumberStyles::Integer,
+                    CultureInfo::InvariantCulture);
+            }
+
+            return fallback;
+        }
+
         static String^ ModuleUri(String^ name)
         {
             return "x64dbg://modules/" + Uri::EscapeDataString(name);
+        }
+
+        static String^ ModulesPageUri(int offset, int limit)
+        {
+            return String::Format("x64dbg://modules?offset={0}&limit={1}", offset, limit);
         }
 
         static String^ ModuleChildUri(String^ name, String^ child)
@@ -1095,7 +1215,10 @@ namespace x64dbgMCP {
                 throw gcnew NotSupportedException("Unknown module: " + name);
         }
 
-        static ModuleInfo^ MakeModuleInfo(const Script::Module::ModuleInfo& module, duint mainBase)
+        static ModuleInfo^ MakeModuleInfo(
+            const Script::Module::ModuleInfo& module,
+            duint mainBase,
+            bool includeNavigationLinks)
         {
             auto info = gcnew ModuleInfo();
             info->Name = Helpers::FromCStr(module.name);
@@ -1107,6 +1230,9 @@ namespace x64dbgMCP {
             info->IsMainModule = module.base == mainBase;
             info->Links = gcnew Dictionary<String^, LinkRef^>();
             info->Links["self"] = Helpers::UriLink(ModuleUri(info->Name));
+            if (!includeNavigationLinks)
+                return info;
+
             info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
             info->Links["sections"] = Helpers::UriLink(ModuleChildUri(info->Name, "sections"));
             info->Links["exports"] = Helpers::UriLink(ModuleChildUri(info->Name, "exports"));
@@ -1179,8 +1305,25 @@ namespace x64dbgMCP {
             {
                 BASIC_INSTRUCTION_INFO bi;
                 memset(&bi, 0, sizeof(bi));
+                if (!DbgMemIsValidReadPtr(cur))
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError(
+                        "x64dbg_failed",
+                        "address is not readable: " + Helpers::FormatAddress(cur));
+                    return r;
+                }
+
                 DbgDisasmFastAt(cur, &bi);
-                int sz = bi.size > 0 ? bi.size : 1;
+                if (bi.size <= 0)
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError(
+                        "x64dbg_failed",
+                        "DbgDisasmFastAt failed at " + Helpers::FormatAddress(cur));
+                    return r;
+                }
+                int sz = bi.size;
 
                 auto e = gcnew DisassembleEntry();
                 e->Address = Helpers::FormatAddress(cur);
@@ -1204,13 +1347,22 @@ namespace x64dbgMCP {
                 {
                     array<unsigned char>^ bytes = gcnew array<unsigned char>(sz);
                     pin_ptr<unsigned char> p = &bytes[0];
-                    if (DbgMemRead(cur, p, sz))
+                    if (!DbgMemRead(cur, p, sz))
                     {
-                        auto sb = gcnew StringBuilder(sz * 2);
-                        for (int j = 0; j < sz; j++) sb->AppendFormat("{0:X2}", bytes[j]);
-                        e->Bytes = sb->ToString();
+                        r->Success = false;
+                        r->Error = Helpers::MakeError(
+                            "x64dbg_failed",
+                            "DbgMemRead failed at " + Helpers::FormatAddress(cur));
+                        return r;
                     }
+                    auto sb = gcnew StringBuilder(sz * 2);
+                    for (int j = 0; j < sz; j++) sb->AppendFormat("{0:X2}", bytes[j]);
+                    e->Bytes = sb->ToString();
                 }
+
+                char comment[MAX_COMMENT_SIZE] = {};
+                if (DbgGetCommentAt(cur, comment) && comment[0] != '\0')
+                    e->Comment = Helpers::FromCStr(comment);
 
                 r->Data->Add(e);
                 cur += (duint)sz;
@@ -1309,13 +1461,119 @@ namespace x64dbgMCP {
     };
 
     // ────────────────────────────────────────────────────────────────
-    //  Unmanaged helpers for DbgGetRegDumpEx
+    //  Unmanaged helpers for register contexts
     // ────────────────────────────────────────────────────────────────
 
 #pragma unmanaged
+    struct ThreadRegisterSnapshot
+    {
+        duint cax;
+        duint cbx;
+        duint ccx;
+        duint cdx;
+        duint csi;
+        duint cdi;
+        duint cbp;
+        duint csp;
+        duint cip;
+#ifdef _WIN64
+        duint r8;
+        duint r9;
+        duint r10;
+        duint r11;
+        duint r12;
+        duint r13;
+        duint r14;
+        duint r15;
+#endif
+        duint eflags;
+        unsigned short cs;
+        unsigned short ds;
+        unsigned short es;
+        unsigned short fs;
+        unsigned short gs;
+        unsigned short ss;
+        duint dr0;
+        duint dr1;
+        duint dr2;
+        duint dr3;
+        duint dr6;
+        duint dr7;
+    };
+
     static bool GetRegisterDumpUnmanaged(REGDUMP_AVX512* regdump)
     {
         return DbgGetRegDumpEx(regdump, sizeof(REGDUMP_AVX512));
+    }
+
+    static int GetThreadContextUnmanaged(DWORD threadId, ThreadRegisterSnapshot* snapshot)
+    {
+        THREADLIST list = {};
+        DbgGetThreadList(&list);
+
+        HANDLE threadHandle = nullptr;
+        for (int i = 0; i < list.count; i++)
+        {
+            if (list.list[i].BasicInfo.ThreadId == threadId)
+            {
+                threadHandle = list.list[i].BasicInfo.Handle;
+                break;
+            }
+        }
+
+        if (list.list != nullptr)
+            BridgeFree(list.list);
+        if (threadHandle == nullptr)
+            return 1;
+
+        CONTEXT context = {};
+        context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS | CONTEXT_DEBUG_REGISTERS;
+        if (!::GetThreadContext(threadHandle, &context))
+            return 2;
+
+#ifdef _WIN64
+        snapshot->cax = context.Rax;
+        snapshot->cbx = context.Rbx;
+        snapshot->ccx = context.Rcx;
+        snapshot->cdx = context.Rdx;
+        snapshot->csi = context.Rsi;
+        snapshot->cdi = context.Rdi;
+        snapshot->cbp = context.Rbp;
+        snapshot->csp = context.Rsp;
+        snapshot->cip = context.Rip;
+        snapshot->r8 = context.R8;
+        snapshot->r9 = context.R9;
+        snapshot->r10 = context.R10;
+        snapshot->r11 = context.R11;
+        snapshot->r12 = context.R12;
+        snapshot->r13 = context.R13;
+        snapshot->r14 = context.R14;
+        snapshot->r15 = context.R15;
+#else
+        snapshot->cax = context.Eax;
+        snapshot->cbx = context.Ebx;
+        snapshot->ccx = context.Ecx;
+        snapshot->cdx = context.Edx;
+        snapshot->csi = context.Esi;
+        snapshot->cdi = context.Edi;
+        snapshot->cbp = context.Ebp;
+        snapshot->csp = context.Esp;
+        snapshot->cip = context.Eip;
+#endif
+        snapshot->eflags = context.EFlags;
+        snapshot->cs = static_cast<unsigned short>(context.SegCs);
+        snapshot->ds = static_cast<unsigned short>(context.SegDs);
+        snapshot->es = static_cast<unsigned short>(context.SegEs);
+        snapshot->fs = static_cast<unsigned short>(context.SegFs);
+        snapshot->gs = static_cast<unsigned short>(context.SegGs);
+        snapshot->ss = static_cast<unsigned short>(context.SegSs);
+        snapshot->dr0 = context.Dr0;
+        snapshot->dr1 = context.Dr1;
+        snapshot->dr2 = context.Dr2;
+        snapshot->dr3 = context.Dr3;
+        snapshot->dr6 = context.Dr6;
+        snapshot->dr7 = context.Dr7;
+        return 0;
     }
 #pragma managed
 
@@ -1432,7 +1690,7 @@ namespace x64dbgMCP {
             "Registers control. Actions:\n"
             "  get  : { name } -> { name, value }       — name is any x64dbg-known register/flag (rax, eip, zf, r8d, _zf...).\n"
             "  set  : { name, value } -> { name, value, previous } — value accepts any x64dbg expression.\n"
-            "  dump : { } -> { registers, flags }        — all GPRs (arch-agnostic) + flags."
+            "  dump : { threadId? } -> { registers, flags } — all GPRs (arch-agnostic) + flags for the active or specified thread."
         )]
         static Object^ Registers(
             [Description("Action: \"get\" | \"set\" | \"dump\"")]
@@ -1442,7 +1700,10 @@ namespace x64dbgMCP {
             String^ name,
             [Description("Value or x64dbg expression (required for set; e.g. \"0x1000\", \"rax+8\")")]
             [DefaultValue("")]
-            String^ value)
+            String^ value,
+            [Description("Thread ID for action=dump; 0 selects the active thread")]
+            [DefaultValue(0)]
+            int threadId)
         {
             if (!DbgIsDebugging())
             {
@@ -1452,7 +1713,7 @@ namespace x64dbgMCP {
                 return r;
             }
 
-            if (action == "dump") return DumpAction();
+            if (action == "dump") return DumpAction(threadId);
             if (action == "get")  return GetAction(name);
             if (action == "set")  return SetAction(name, value);
 
@@ -1462,6 +1723,55 @@ namespace x64dbgMCP {
                 "invalid_argument",
                 "unknown action: " + (action ? action : "<null>") + "; expected get|set|dump");
             return r;
+        }
+
+        [McpServerTool]
+        [Description(
+            "Manage the x64dbg log window. Actions:\n"
+            "  clear : clear the log window\n"
+            "  put   : { text } -- append text as one line"
+        )]
+        static LoggingResult^ Logging(
+            [Description("Action: \"clear\" | \"put\"")]
+            String^ action,
+            [Description("Text to append as a line (required for action=put)")]
+            [DefaultValue("")]
+            String^ text)
+        {
+            auto result = gcnew LoggingResult();
+
+            if (action == "clear")
+            {
+                GuiLogClear();
+            }
+            else if (action == "put")
+            {
+                if (String::IsNullOrEmpty(text))
+                {
+                    result->Success = false;
+                    result->Error = Helpers::MakeError(
+                        "invalid_argument",
+                        "text is required for action=put");
+                    return result;
+                }
+
+                IntPtr utf8Text = Marshal::StringToCoTaskMemUTF8(text);
+                _plugin_logputs(static_cast<const char*>(utf8Text.ToPointer()));
+                Marshal::FreeCoTaskMem(utf8Text);
+            }
+            else
+            {
+                result->Success = false;
+                result->Error = Helpers::MakeError(
+                    "invalid_argument",
+                    "unknown action: " + (action ? action : "<null>") + "; expected clear|put");
+                return result;
+            }
+
+            result->Success = true;
+            result->Data = gcnew LoggingActionData();
+            result->Data->Action = action;
+            return result;
         }
 
     private:
@@ -1547,15 +1857,93 @@ namespace x64dbgMCP {
             return r;
         }
 
-        static RegisterDumpResult^ DumpAction()
+        static RegisterDumpResult^ DumpAction(int requestedThreadId)
         {
             auto r = gcnew RegisterDumpResult();
             r->Success = true;
-            r->ThreadId = (int)DbgGetThreadId();
             r->Registers = gcnew Dictionary<String^, String^>();
             r->Flags = gcnew Dictionary<String^, bool>();
 
-            // Allocate REGDUMP_AVX512 on unmanaged heap
+            if (requestedThreadId < 0)
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("invalid_argument", "threadId must be non-negative");
+                return r;
+            }
+
+            int activeThreadId = (int)DbgGetThreadId();
+            r->ThreadId = requestedThreadId == 0 ? activeThreadId : requestedThreadId;
+
+            if (r->ThreadId != activeThreadId)
+            {
+                if (DbgIsRunning())
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError(
+                        "not_paused",
+                        "the debuggee must be paused to read an inactive thread context");
+                    return r;
+                }
+
+                ThreadRegisterSnapshot* context = new ThreadRegisterSnapshot();
+                memset(context, 0, sizeof(ThreadRegisterSnapshot));
+                int contextResult = GetThreadContextUnmanaged((DWORD)r->ThreadId, context);
+                if (contextResult != 0)
+                {
+                    delete context;
+                    r->Success = false;
+                    r->Error = contextResult == 1
+                        ? Helpers::MakeError("not_found", "thread ID not found: " + r->ThreadId.ToString())
+                        : Helpers::MakeError("x64dbg_failed", "GetThreadContext failed for thread: " + r->ThreadId.ToString());
+                    return r;
+                }
+
+#ifdef _WIN64
+                r->Registers["rax"] = Helpers::FormatAddress(context->cax);
+                r->Registers["rbx"] = Helpers::FormatAddress(context->cbx);
+                r->Registers["rcx"] = Helpers::FormatAddress(context->ccx);
+                r->Registers["rdx"] = Helpers::FormatAddress(context->cdx);
+                r->Registers["rsi"] = Helpers::FormatAddress(context->csi);
+                r->Registers["rdi"] = Helpers::FormatAddress(context->cdi);
+                r->Registers["rbp"] = Helpers::FormatAddress(context->cbp);
+                r->Registers["rsp"] = Helpers::FormatAddress(context->csp);
+                r->Registers["rip"] = Helpers::FormatAddress(context->cip);
+                r->Registers["r8"] = Helpers::FormatAddress(context->r8);
+                r->Registers["r9"] = Helpers::FormatAddress(context->r9);
+                r->Registers["r10"] = Helpers::FormatAddress(context->r10);
+                r->Registers["r11"] = Helpers::FormatAddress(context->r11);
+                r->Registers["r12"] = Helpers::FormatAddress(context->r12);
+                r->Registers["r13"] = Helpers::FormatAddress(context->r13);
+                r->Registers["r14"] = Helpers::FormatAddress(context->r14);
+                r->Registers["r15"] = Helpers::FormatAddress(context->r15);
+#else
+                r->Registers["eax"] = Helpers::FormatAddress(context->cax);
+                r->Registers["ebx"] = Helpers::FormatAddress(context->cbx);
+                r->Registers["ecx"] = Helpers::FormatAddress(context->ccx);
+                r->Registers["edx"] = Helpers::FormatAddress(context->cdx);
+                r->Registers["esi"] = Helpers::FormatAddress(context->csi);
+                r->Registers["edi"] = Helpers::FormatAddress(context->cdi);
+                r->Registers["ebp"] = Helpers::FormatAddress(context->cbp);
+                r->Registers["esp"] = Helpers::FormatAddress(context->csp);
+                r->Registers["eip"] = Helpers::FormatAddress(context->cip);
+#endif
+                r->Registers["cs"] = Helpers::FormatAddress(context->cs);
+                r->Registers["ds"] = Helpers::FormatAddress(context->ds);
+                r->Registers["es"] = Helpers::FormatAddress(context->es);
+                r->Registers["fs"] = Helpers::FormatAddress(context->fs);
+                r->Registers["gs"] = Helpers::FormatAddress(context->gs);
+                r->Registers["ss"] = Helpers::FormatAddress(context->ss);
+                r->Registers["dr0"] = Helpers::FormatAddress(context->dr0);
+                r->Registers["dr1"] = Helpers::FormatAddress(context->dr1);
+                r->Registers["dr2"] = Helpers::FormatAddress(context->dr2);
+                r->Registers["dr3"] = Helpers::FormatAddress(context->dr3);
+                r->Registers["dr6"] = Helpers::FormatAddress(context->dr6);
+                r->Registers["dr7"] = Helpers::FormatAddress(context->dr7);
+                PopulateFlags(r, context->eflags);
+                delete context;
+                return r;
+            }
+
             REGDUMP_AVX512* regdump = new REGDUMP_AVX512();
             if (!GetRegisterDumpUnmanaged(regdump))
             {
@@ -1614,17 +2002,7 @@ namespace x64dbgMCP {
             r->Registers["dr6"] = Helpers::FormatAddress(ctx.dr6);
             r->Registers["dr7"] = Helpers::FormatAddress(ctx.dr7);
 
-            // Flags - extract from eflags (REGDUMP_AVX512 doesn't have FLAGS field)
-            duint eflags = ctx.eflags;
-            r->Flags["cf"] = (eflags & 0x0001) != 0;  // Carry Flag
-            r->Flags["pf"] = (eflags & 0x0004) != 0;  // Parity Flag
-            r->Flags["af"] = (eflags & 0x0010) != 0;  // Auxiliary Carry Flag
-            r->Flags["zf"] = (eflags & 0x0040) != 0;  // Zero Flag
-            r->Flags["sf"] = (eflags & 0x0080) != 0;  // Sign Flag
-            r->Flags["tf"] = (eflags & 0x0100) != 0;  // Trap Flag
-            r->Flags["if"] = (eflags & 0x0200) != 0;  // Interrupt Enable Flag
-            r->Flags["df"] = (eflags & 0x0400) != 0;  // Direction Flag
-            r->Flags["of"] = (eflags & 0x0800) != 0;  // Overflow Flag
+            PopulateFlags(r, ctx.eflags);
 
             // LastError and LastStatus from REGDUMP_AVX512
             if (regdump->lastError != 0)
@@ -1635,6 +2013,19 @@ namespace x64dbgMCP {
 
             delete regdump;
             return r;
+        }
+
+        static void PopulateFlags(RegisterDumpResult^ result, duint eflags)
+        {
+            result->Flags["cf"] = (eflags & 0x0001) != 0;
+            result->Flags["pf"] = (eflags & 0x0004) != 0;
+            result->Flags["af"] = (eflags & 0x0010) != 0;
+            result->Flags["zf"] = (eflags & 0x0040) != 0;
+            result->Flags["sf"] = (eflags & 0x0080) != 0;
+            result->Flags["tf"] = (eflags & 0x0100) != 0;
+            result->Flags["if"] = (eflags & 0x0200) != 0;
+            result->Flags["df"] = (eflags & 0x0400) != 0;
+            result->Flags["of"] = (eflags & 0x0800) != 0;
         }
     };
 }

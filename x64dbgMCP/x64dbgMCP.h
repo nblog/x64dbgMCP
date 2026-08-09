@@ -10,6 +10,7 @@ namespace x64dbgMCP {
     using namespace System::Threading::Tasks;
     using namespace Microsoft::AspNetCore::Builder;
     using namespace Microsoft::Extensions::DependencyInjection;
+    using namespace Microsoft::Extensions::Hosting;
     using namespace ModelContextProtocol::Server;
     using namespace ModelContextProtocol::Protocol;
 
@@ -19,7 +20,9 @@ namespace x64dbgMCP {
         static WebApplication^ _app;
         static String^ _httpUrl;
         static Task^ _serverTask;
+        static TaskCompletionSource<bool>^ _startupCompletion;
         static bool _running = false;
+        static bool _starting = false;
         static bool _enableDebugging = false;
 
         static void Log(String^ message)
@@ -30,7 +33,7 @@ namespace x64dbgMCP {
         }
 
     public:
-        static property bool IsRunning { bool get() { return _running; } }
+        static property bool IsRunning { bool get() { return _running || _starting; } }
 
         static bool Start(int port)
         {
@@ -44,24 +47,54 @@ namespace x64dbgMCP {
 
         static bool Start(int port, String^ httpUrl, bool enableDebugging)
         {
-            if (_running) return false;
+            if (_running || _starting) return false;
+            _starting = true;
             _enableDebugging = enableDebugging;
             _httpUrl = httpUrl ? String::Format("http://{0}:{1}", httpUrl, port) : String::Format("http://localhost:{0}", port);
-            _serverTask = Task::Run(gcnew Action(&RunServerEntry));
-            _running = true;
-            return _running;
+            _startupCompletion = gcnew TaskCompletionSource<bool>(TaskCreationOptions::RunContinuationsAsynchronously);
+
+            try {
+                _serverTask = Task::Run(gcnew Action(&RunServerEntry));
+                bool started = _startupCompletion->Task->GetAwaiter().GetResult();
+                _starting = false;
+                return started;
+            }
+            catch (Exception^ ex) {
+                // The startup signal is completed from the server task's catch block.
+                // Wait for its finally block before allowing a retry to reuse static state.
+                try {
+                    if (_serverTask != nullptr)
+                        _serverTask->Wait();
+                } catch (...) {}
+                _starting = false;
+                Log("Start failed: " + ex->ToString());
+                return false;
+            }
         }
 
         static void Stop()
         {
-            if (!_running) return;
+            if (!_running && !_starting) return;
+            bool stopped = _serverTask == nullptr || _serverTask->IsCompleted;
             try {
                 if (_app != nullptr)
                     _app->StopAsync()->GetAwaiter().GetResult();
                 if (_serverTask != nullptr)
-                    _serverTask->Wait(5000);
-            } catch (...) {}
-            _running = false;
+                    stopped = _serverTask->Wait(5000);
+            } catch (Exception^ ex) {
+                stopped = _serverTask == nullptr || _serverTask->IsCompleted;
+                Log("Stop failed: " + ex->ToString());
+            }
+
+            if (stopped)
+            {
+                _running = false;
+                _starting = false;
+            }
+            else
+            {
+                Log("Stop timed out; server remains active until the background task exits");
+            }
         }
 
     private:
@@ -75,6 +108,10 @@ namespace x64dbgMCP {
 
         static void RunServerEntry()
         {
+            auto startupCompletion = _startupCompletion;
+            String^ httpUrl = _httpUrl;
+            bool enableDebugging = _enableDebugging;
+
             try {
                 auto builder = WebApplication::CreateSlimBuilder();
 
@@ -90,7 +127,7 @@ namespace x64dbgMCP {
                 McpServerBuilderExtensions::WithResources<McpResources^>(mcpBuilder);
 
                 // Register debugging tools (on-demand)
-                if (_enableDebugging)
+                if (enableDebugging)
                     McpServerBuilderExtensions::WithTools<McpDebuggingTools^>(mcpBuilder);
 
                 // Add HTTP transport (enables Streamable HTTP + legacy SSE)
@@ -98,22 +135,34 @@ namespace x64dbgMCP {
 
                 _app = builder->Build();
 
-                // Listen on loopback only
-                _app->Urls->Add(_httpUrl);
+                // Bind the configured host; the command defaults it to localhost.
+                _app->Urls->Add(httpUrl);
 
                 // Map MCP endpoints:
                 //   Streamable HTTP: POST /
                 //   Legacy SSE:      GET /sse, POST /message
                 McpEndpointRouteBuilderExtensions::MapMcp(_app, "");
 
-                Log("WebApplication starting on " + _httpUrl);
-                _app->RunAsync()->GetAwaiter().GetResult();
+                Log("WebApplication starting on " + httpUrl);
+                _app->StartAsync()->GetAwaiter().GetResult();
+                _running = true;
+                _starting = false;
+                startupCompletion->TrySetResult(true);
+                HostingAbstractionsHostExtensions::WaitForShutdownAsync(
+                    _app,
+                    CancellationToken::None)->GetAwaiter().GetResult();
             }
             catch (Exception^ ex) {
+                if (startupCompletion != nullptr && !startupCompletion->Task->IsCompleted)
+                    startupCompletion->TrySetException(ex);
                 Log("RunServer fatal: " + ex->ToString());
             }
             finally {
+                if (startupCompletion != nullptr && !startupCompletion->Task->IsCompleted)
+                    startupCompletion->TrySetResult(false);
                 _running = false;
+                _starting = false;
+                _app = nullptr;
                 Log("RunServer exited");
             }
         }

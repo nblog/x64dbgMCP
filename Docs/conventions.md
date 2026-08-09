@@ -12,13 +12,13 @@ This document encodes the **non-negotiable rules** for shaping MCP tools, resour
 |---|---|---|
 | Tool method (managed) | `PascalCase`, verb-first | `Disassemble`, `GetMemoryMap`, `FindPattern` |
 | Tool `Name` (MCP-visible) | Defaults to method name; override only if the method name conflicts or hurts discoverability | — |
-| Action-mega tool | Plural noun for the family; the `action` parameter is `snake_case` | `Breakpoints{action:"list"\|"set"\|"delete"\|"set_batch"}` |
+| Action-mega tool | Plural noun for the family; the `action` parameter is `snake_case` | `Breakpoints{action:"get"\|"set"\|"delete"\|"set_batch"}` |
 | Resource URI scheme | `x64dbg://` (single scheme for the whole project) | — |
 | Resource URI template | `lowercase`, hyphenated, hierarchical, plural collections | `x64dbg://modules`, `x64dbg://modules/{name}/sections` |
 | Helper class | `Helpers`, `internal` access only | — |
 | Result class | `<Domain><Verb>Result` or `<Domain>Info` | `DisassembleResult`, `ModuleInfo`, `BreakpointEntry` |
 
-Action names: prefer `list`, `get`, `set`, `delete`, `set_batch`, `delete_batch`. For control clusters use the natural verb: `init`, `stop`, `run`, `pause`, `StepInto`, `StepOver`, `StepOut`.
+Action names: prefer `get`, `set`, `delete`, `set_batch`, `delete_batch`. A bounded relationship query may use a localized name such as `list_at`; bulk collection scans belong to Resources. For control clusters use the natural verb: `init`, `stop`, `run`, `pause`, `StepInto`, `StepOver`, `StepOut`.
 
 ---
 
@@ -111,7 +111,7 @@ Resources are different: they return raw text or `ResourceContents` per MCP spec
 
 ## 6. HATEOAS `_links` (Navigation Roots Only)
 
-`_links` is a structured map of "where to go next" hints. It appears **only on navigation-root responses** — top-level entry points an agent uses to orient itself. Detail/leaf items do not carry `_links` (it would dwarf the payload).
+`_links` is a structured map of "where to go next" hints. It appears **only on navigation-root responses** — top-level entry points an agent uses to orient itself. Detail/leaf items do not carry `_links` (it would dwarf the payload), except that each item in `x64dbg://modules` carries only `_links.self` so an agent can open its per-module navigation root.
 
 Navigation roots (carry `_links`):
 
@@ -121,10 +121,11 @@ Navigation roots (carry `_links`):
 - `x64dbg://windows`
 - `x64dbg://handles`
 - `x64dbg://tcpconnections`
-- Top-level `Breakpoints{action:"list"}`, `Threads{action:"list"}`
+- `x64dbg://breakpoints`, `x64dbg://threads`
 
 Leaves (no `_links`):
 
+- `x64dbg://logging` (plain-text snapshot)
 - Each `DisassembleEntry`, `MemoryReadResult`, `BreakpointEntry`, `ModuleSection`, etc.
 
 Link shape:
@@ -151,7 +152,7 @@ See [adr/005-hateoas-links-on-navigation-roots.md](adr/005-hateoas-links-on-navi
 
 ## 7. Pagination & Bulk Parameters
 
-List-shaped operations (`list` action of mega-tools, `x64dbg://modules`, `Breakpoints{action:"list"}`) accept:
+List-shaped Resources and operations (`x64dbg://modules`, `x64dbg://symbols`, `x64dbg://breakpoints`, and any localized list action) accept:
 
 - `offset : int = 0` — index of first item
 - `limit : int = 100` — max items to return; clamped server-side to a per-tool ceiling

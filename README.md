@@ -11,6 +11,7 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 | URI | 用途 |
 |---|---|
 | `x64dbg://session` | 会话快照（平台、是否在调试、是否运行、x64dbg 目录），导航根 |
+| `x64dbg://logging` | 日志窗口信息 |
 | `x64dbg://process` | 当前进程信息 |
 | `x64dbg://threads` | 线程列表 |
 | `x64dbg://memory/maps` | 内存映射 |
@@ -22,6 +23,12 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 | `x64dbg://modules/{name}/sections` | 模块节表 |
 | `x64dbg://modules/{name}/exports` | 导出表 |
 | `x64dbg://modules/{name}/imports` | 导入表 |
+| `x64dbg://functions` | 函数信息 |
+| `x64dbg://symbols` | 符号信息 |
+| `x64dbg://labels` | 标签信息 |
+| `x64dbg://comments` | 注释信息 |
+| `x64dbg://bookmarks` | 书签信息 |
+| `x64dbg://breakpoints` | 断点信息 |
 
 ### Rich-param Tools — 热路径查询
 
@@ -35,26 +42,26 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 
 ### Action-mega Tools — CRUD 家族 / 控制簇
 
-形态对称的家族用 `action` 字段分派，避免工具数量爆炸。状态变更类工具仅在 `enableDebugging=true` 时注册。
+形态对称的家族用 `action` 字段分派，避免工具数量爆炸。Resource 负责批量只读快照，Tool (`enableDebugging=true`) 负责单条读取与调整。
 
-只读：
+分析与标注（始终注册）：
 
-- `Symbols { list, get }`
-- `Functions { list, get, set, delete }`
-- `Labels { list, get, set, delete, set_batch, delete_batch }`
-- `Comments { list, get, set, delete, set_batch, delete_batch }`
-- `Bookmarks { list, get, set, delete }`
+- `Symbols { get }`
+- `Functions { get, set, delete }`
+- `Labels { get, set, delete, set_batch, delete_batch }`
+- `Comments { get, set, delete, set_batch, delete_batch }`
+- `Bookmarks { get, set, delete }`
 - `Xrefs { list_at, add, count_at, type_at }`
 
-调试态（mutating）：
+仅在 `enableDebugging=true` 时加载，避免默认 tool schema 膨胀：
 
 - `DebugControl { init, run, stop, pause, StepInto, StepOver, StepOut, run_command }`
 - `Registers { get, set, dump }` — 名称由 x64dbg 解析，覆盖任意寄存器/标志
-- `Breakpoints { list, get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch }`
+- `Breakpoints { get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch }`
 - `Memory { write, alloc, free }`
-- `Threads { list, get, set_name, set_active, suspend, resume, create_at }`
+- `Threads { get, set_name, set_active, suspend, resume, create_at }`
 - `Assemble(addr, instruction, fillNops?)`
-- `LogPuts(text)` — 在 x64dbg 日志窗口留痕
+- `Logging { clear, put }` — 清空日志窗口或用 `_plugin_logputs` 追加一行
 
 ---
 
@@ -72,7 +79,7 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 启动服务：
 
 ```
-mcp.start                    ; 默认 port=3001, host=localhost, 仅注册只读工具
+mcp.start                    ; 默认 port=3001, host=localhost
 mcp.start 3001               ; 指定端口
 mcp.start 3001,0.0.0.0       ; 暴露给非 loopback 客户端 (host=0.0.0.0)
 ```

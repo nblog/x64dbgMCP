@@ -2,6 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-24
+- **Amended**: 2026-08-08
 - **Deciders**: @nblog
 
 ## Context
@@ -32,18 +33,22 @@ The MCP specification distinguishes Resources (read-only, URI-addressable, **app
 
 ### Layer A — Resources (`[McpServerResource]`)
 
-For data that is **static while the debuggee is paused** and that an agent typically explores rather than acts on:
+For **read-only data that is most useful as a bulk snapshot or collection** and that an agent typically scans before selecting an individual target:
 
 - Modules list, per-module sections/exports/imports
 - Memory map
 - Threads list
-- Project/session info
+- Symbols, functions, labels, comments, bookmarks, and breakpoints lists
+- Project/session/process info
+- x64dbg Log view snapshot
 
-Benefits: URI-addressable (cacheable by clients), does not contribute to the tool list (free in tool schema budget), supports natural hierarchical navigation via `_links`.
+Resources are not required to be immutable or permanently cacheable: their contents may change between reads as the debug session changes. The invariant is that reading a Resource does not alter debugger-domain state. Benefits: URI-addressable, compact for bulk retrieval, absent from the AI tool-definition budget, and naturally navigable via `_links`.
+
+`x64dbg://logging` has one documented transient host-filesystem exception: x64dbg exposes the rendered Log view through `GuiLogSave(filename)`, so each read materializes a unique temporary file, reads it as UTF-8, and immediately deletes it after the successful read. The save notification is suppressed and the Log view itself remains unchanged.
 
 ### Layer B — Rich-param Tools (`[McpServerTool]`)
 
-For **single-purpose hot-path queries** with bulk parameters that minimise round-trips:
+For **single-purpose focused queries** over one target or a bounded hot-path window:
 
 - `Disassemble(addr, count, withBytes?)` — `count` ≤ 200
 - `MemoryRead(addr, size)` — `size` ≤ 64 KiB
@@ -54,19 +59,25 @@ Benefits: clear contract, minimal action enum noise, AI agents discover them by 
 
 ### Layer C — Action-mega Tools (`[McpServerTool]` with `action` enum)
 
-For **symmetric CRUD families** and **debug control clusters** that share parameter shapes:
+For **fine-grained per-item CRUD families** and **debug control clusters** that share parameter shapes:
 
-- `Labels{list, get, set, delete, set_batch, delete_batch}`
+- `Labels{get, set, delete, set_batch, delete_batch}`; bulk reads use `x64dbg://labels`
 - `Comments{...}`, `Bookmarks{...}`, `Functions{...}`, `Xrefs{...}`
 - `DebugControl{run, pause, stop, restart, step_into, step_over, step_out, init, run_command}`
-- `Breakpoints{list, get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}`
-- `Registers{get, set, dump}`, `Memory{write, alloc, free}`, `Threads{...}`
+- `Breakpoints{get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}`; bulk reads use `x64dbg://breakpoints`
+- `Registers{get, set, dump}`, `Memory{write, alloc, free}`, `Threads{get, set_name, set_active, suspend, resume, create_at}`, `Logging{clear, put}`
 
 Benefits: tool count compression, symmetric ops live next to each other, batch variants come for free in the same dispatch.
 
 ### Estimated surface
 
-~10 resources + ~7 rich-param tools + ~9 mega-tools ≈ **26 entries** (PoC: 50+). Each mega-tool's schema is larger than a single-purpose tool's, but the net token cost is lower because we collapsed many siblings.
+The current target catalog is ~19 resources + ~7 rich-param tools + ~13 mega-tools. Only tool definitions consume the AI tool-schema budget. With debugger-domain tools gated off, an agent loads ~13 tool definitions instead of the full ~20 (PoC: 50+).
+
+### Debugger-domain catalog gate
+
+`McpAnalysisTools` is always registered and may contain both precise reads and updates to analysis metadata such as labels, comments, bookmarks, functions, and xrefs. `McpDebuggingTools` is registered only when `enableDebugging=true` and contains the large debugger-operation catalog: execution control, breakpoints, registers, memory mutation, thread control, assembly, and logging.
+
+This classification is by **debugger domain and schema cost**, not by whether an operation writes state. `enableDebugging` is therefore a tool-catalog gate, not an authorization or read-only safety boundary.
 
 ## Consequences
 
@@ -74,7 +85,7 @@ Benefits: tool count compression, symmetric ops live next to each other, batch v
 
 - Tool-list size roughly halved vs PoC
 - Disassembly / memory read / pattern search return bulk in one call
-- Modules and memory map become free to browse via Resources, not tools
+- Bulk collections become free to browse via Resources rather than tool calls
 - Action mega-tools naturally accommodate batch operations (key for AI agents iterating over many addresses)
 
 **Negative**
@@ -86,10 +97,11 @@ Benefits: tool count compression, symmetric ops live next to each other, batch v
 **Constraints on future work**
 
 - New functionality must be triaged into one of the three layers before implementation. The triage criteria (in order):
-  1. Is it static while paused and naturally hierarchical? → **Resource**
-  2. Is it a single-purpose query / action with no symmetric siblings? → **rich-param Tool**
-  3. Is it part of a CRUD family or a control cluster? → **action-mega Tool**
-- We do **not** mix layers within one concept. E.g. `Breakpoints` is exclusively a mega-tool; we do not also expose `x64dbg://breakpoints` (state-mutating, frequent change → a poor resource fit).
+  1. Is it a read-only bulk snapshot or collection scan? → **Resource**
+  2. Is it a focused query/action over one target or bounded window, with no symmetric siblings? → **rich-param Tool**
+  3. Is it fine-grained per-item CRUD or part of a control cluster? → **action-mega Tool**
+- A concept may span Resource and Tool layers when the Resource supplies a bulk read view and the Tool supplies precise item reads or changes. The exact same operation must not be duplicated across layers.
+- `enableDebugging` membership follows debugger-domain ownership and schema-budget impact, not a generic mutation test.
 - Adding a tool that doesn't fit any layer requires an ADR.
 
 ## Alternatives Considered
@@ -97,7 +109,8 @@ Benefits: tool count compression, symmetric ops live next to each other, batch v
 1. **Pure 1:1 (PoC shape)** — rejected. Density and tool-list bloat are the original problem.
 2. **Pure mega-tool (better-x64dbg-mcp shape, 21 tools / 148 ops)** — rejected as too aggressive. Single-purpose hot queries (`Disassemble`, `MemoryRead`) lose discoverability when buried under an `action` enum, and big schemas make every read of the tool list expensive.
 3. **HATEOAS-only with one query tool (GraphQL-ish)** — rejected. Maximum client autonomy but maximum schema cost; the AI must learn the entire query language to do anything. Better suited to client SDK code than to chat-driven agents.
-4. **Pure Resources + a single `execute` tool** — rejected. Conflates state-mutating with read-only; loses MCP's built-in safety semantics (`ReadOnly = true`).
+4. **Pure Resources + a single `execute` tool** — rejected. Hides precise operations behind one oversized schema and discards the discoverability of focused tools.
+5. **One layer per concept** — superseded by the 2026-08-08 amendment. It prevented the useful combination of a compact bulk-read Resource with precise per-item Tools.
 
 ## References
 

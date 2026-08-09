@@ -46,9 +46,9 @@ The pluginsdk headers are vendored under [`x64dbgMCP/plugintemplate/pluginsdk/`]
 
 | Header | Use |
 |---|---|
-| `bridgemain.h` | `Bridge*` core APIs, `DbgValFromString`, `DbgValToString`, `DbgGetRegDumpEx` |
+| `bridgemain.h` | `Bridge*` core APIs, `DbgValFromString`, `DbgValToString`, `DbgGetRegDumpEx`, `GuiLogSave`, `GuiLogClear`, `GuiExecuteOnGuiThreadEx`, `GuiDisableLogScope` |
 | `_dbgfunctions.h` | Extended debugger function table |
-| `_plugins.h` | Plugin lifecycle hooks |
+| `_plugins.h` | Plugin lifecycle hooks and `_plugin_logputs` |
 | `_scriptapi.h` | Top-level Script API namespace |
 | `_scriptapi_argument.h` | `Script::Argument::*` (function arg analysis) |
 | `_scriptapi_assembler.h` | `Script::Assembler::*` |
@@ -89,6 +89,8 @@ When implementing a `DebugControl` action that maps onto a raw command, consult 
 
 - [x64dbg/x64dbg](https://github.com/x64dbg/x64dbg) — main repository
 - [x64dbg pluginsdk source](https://github.com/x64dbg/x64dbg/tree/development/src/dbg/pluginsdk) — authoritative source for pluginsdk headers (compare against vendored copies during SDK upgrades)
+- [LogView.cpp — save](https://github.com/x64dbg/x64dbg/blob/749bd554c58f0e3fa2091e67373d949845ef073e/src/gui/Src/Gui/LogView.cpp#L471-L484) — `GuiLogSave` handling: append-mode `QFile`, rendered UTF-8 log contents, and save-status message
+- [LogView.cpp — visibility and flush](https://github.com/x64dbg/x64dbg/blob/749bd554c58f0e3fa2091e67373d949845ef073e/src/gui/Src/Gui/LogView.cpp#L164-L175) — the Log tab starts/stops its flush timer on show/hide; [`flushTimerSlot`](https://github.com/x64dbg/x64dbg/blob/749bd554c58f0e3fa2091e67373d949845ef073e/src/gui/Src/Gui/LogView.cpp#L574-L606) moves the private buffer into the rendered document
 - [HandlesView.cpp](https://github.com/x64dbg/x64dbg/blob/development/src/gui/Src/Gui/HandlesView.cpp) — x64dbg GUI's handle, window, and TCP-connection enumeration and display fields
 
 ### Bundled compression (lz4)
