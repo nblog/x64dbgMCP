@@ -386,12 +386,22 @@ DisassembleResult^ Disassemble(
     bool withBytes
 );
 
+public ref class DisassembleReference
+{
+public:
+    property String^ Kind;           // currently "import"
+    property String^ Address;        // referenced IAT slot, hex
+    property String^ Name;           // imported symbol name
+};
+
 public ref class DisassembleEntry
 {
 public:
     property String^ Address;        // hex
     property String^ Mnemonic;       // "mov", "call", ...
-    property String^ Operands;       // "rax, qword ptr [rcx+8]"
+    property String^ Operands;       // canonical fast-disasm text, e.g. "rax, qword ptr [rcx+8]"
+    property String^ Display;        // optional symbolized instruction text
+    property DisassembleReference^ Reference; // optional exact reference metadata
     property String^ Bytes;          // hex string, present iff withBytes=true
     property int Size;               // instruction size in bytes
     property String^ Comment;        // x64dbg comment if any
@@ -403,6 +413,31 @@ public:
     property List<DisassembleEntry^>^ Data;
 };
 ```
+
+`operands` remains the canonical text returned by x64dbg's fast disassembler and is never
+rewritten. When the instruction has a memory operand whose effective address exactly matches
+an IAT entry in the loaded module's import table, `display` presents the same instruction with
+that operand rendered as `<&Name>`, and `reference` identifies the import and its IAT slot. For
+example:
+
+```json
+{
+  "mnemonic": "call",
+  "operands": "qword ptr ds:[0x00007FF709D12D58]",
+  "display": "call qword ptr ds:[<&RaiseException>]",
+  "reference": {
+    "kind": "import",
+    "address": "0x7FF709D12D58",
+    "name": "RaiseException"
+  }
+}
+```
+
+The reference address is the IAT slot named by the instruction, not the pointer currently
+stored in that slot and not the final implementation address. Both optional fields are absent
+when exact import resolution is unavailable; ordinary memory operands must not be labelled as
+imports. The symbolized display is a stable Tool representation constructed from fast-disasm
+metadata and the debugger symbol table, rather than the GUI's setting-dependent rendered line.
 
 Errors: `not_attached`, `invalid_argument` (count out of range), `not_found` (addr unresolvable), `x64dbg_failed` (unreadable address, disassembly failure, or byte-read failure).
 

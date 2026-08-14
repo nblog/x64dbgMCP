@@ -520,6 +520,19 @@ namespace x64dbgMCP {
     //  Tool result types (tools-spec.md §3, §5)
     // ────────────────────────────────────────────────────────────────
 
+    public ref class DisassembleReference
+    {
+    public:
+        [JsonPropertyName("kind")]
+        property String^ Kind;
+
+        [JsonPropertyName("address")]
+        property String^ Address;
+
+        [JsonPropertyName("name")]
+        property String^ Name;
+    };
+
     public ref class DisassembleEntry
     {
     public:
@@ -531,6 +544,14 @@ namespace x64dbgMCP {
 
         [JsonPropertyName("operands")]
         property String^ Operands;
+
+        [JsonPropertyName("display")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Display;
+
+        [JsonPropertyName("reference")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property DisassembleReference^ Reference;
 
         [JsonPropertyName("bytes")]
         [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
@@ -1301,6 +1322,9 @@ namespace x64dbgMCP {
                 return r;
             }
 
+            auto importNames = gcnew Dictionary<UInt64, String^>();
+            auto indexedImportModules = gcnew HashSet<UInt64>();
+
             for (int i = 0; i < count; i++)
             {
                 BASIC_INSTRUCTION_INFO bi;
@@ -1341,6 +1365,49 @@ namespace x64dbgMCP {
                 {
                     e->Mnemonic = full;
                     e->Operands = String::Empty;
+                }
+
+                if ((bi.type & TYPE_MEMORY) != 0 && bi.memory.value != 0)
+                {
+                    duint moduleBase = Script::Module::BaseFromAddr(bi.memory.value);
+                    if (moduleBase != 0 && indexedImportModules->Add((UInt64)moduleBase))
+                    {
+                        Script::Module::ModuleInfo module{};
+                        BridgeList<Script::Module::ModuleImport> imports;
+                        if (Script::Module::InfoFromAddr(moduleBase, &module) &&
+                            Script::Module::GetImports(&module, &imports))
+                        {
+                            for (int j = 0; j < imports.Count(); j++)
+                            {
+                                const char* nativeName = imports[j].name;
+                                if (nativeName[0] == '\0')
+                                    nativeName = imports[j].undecoratedName;
+                                if (nativeName[0] != '\0')
+                                    importNames[(UInt64)imports[j].iatVa] = Helpers::FromCStr(nativeName);
+                            }
+                        }
+                    }
+
+                    UInt64 referenceAddress = (UInt64)bi.memory.value;
+                    if (importNames->ContainsKey(referenceAddress))
+                    {
+                        String^ symbolName = importNames[referenceAddress];
+                        int openBracket = e->Operands->IndexOf('[');
+                        int closeBracket = e->Operands->LastIndexOf(']');
+                        if (openBracket >= 0 && closeBracket > openBracket)
+                        {
+                            String^ symbolizedOperands =
+                                e->Operands->Substring(0, openBracket + 1) +
+                                "<&" + symbolName + ">" +
+                                e->Operands->Substring(closeBracket);
+
+                            e->Display = e->Mnemonic + " " + symbolizedOperands;
+                            e->Reference = gcnew DisassembleReference();
+                            e->Reference->Kind = "import";
+                            e->Reference->Address = Helpers::FormatAddress(bi.memory.value);
+                            e->Reference->Name = symbolName;
+                        }
+                    }
                 }
 
                 if (withBytes && sz > 0 && sz <= 16)
