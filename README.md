@@ -40,7 +40,6 @@ Tools with many parameters but a single semantic purpose, exposed per tool. All 
 |---|---|
 | `ParseExpression(expr)` | Resolve any expression to an address plus its owning module/section |
 | `Disassemble(addr, count, withBytes?)` | Disassemble N instructions, optionally returning raw bytes |
-| `MemoryRead(addr, size, compress?)` | Read memory, returned as base64; `compress=true` uses lz4 to widen the effective single-call window |
 
 ### Action-mega Tools — CRUD Families / Control Clusters
 
@@ -61,7 +60,7 @@ Loaded only when `enableDebugging=true`, to avoid bloating the default tool sche
 - `DebugControl { init, run, stop, pause, StepInto, StepOver, StepOut, run_command }`
 - `Registers { get, set, dump }` — Names are resolved by x64dbg, covering any register/flag
 - `Assemble(addr, instruction, fillNops?)`
-- `Memory { read, write, alloc, free }`
+- `Memory { read(addr, size, compress?), write, alloc, free }` — `read` returns base64; `compress=true` uses lz4
 - `Threads { get, set_name, set_active, suspend, resume, create_at }`
 - `Breakpoints { get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch }`
 

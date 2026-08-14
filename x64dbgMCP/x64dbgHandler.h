@@ -128,6 +128,73 @@ namespace x64dbgMCP {
             return s && *s ? gcnew String(s) : nullptr;
         }
 
+        static String^ BreakpointTypeName(BPXTYPE type)
+        {
+            switch (type)
+            {
+            case bp_normal:    return "normal";
+            case bp_hardware:  return "hardware";
+            case bp_memory:    return "memory";
+            case bp_dll:       return "dll";
+            case bp_exception: return "exception";
+            default:           return "unknown";
+            }
+        }
+
+        static String^ BreakpointSubtypeName(BPXTYPE type, unsigned char subtype)
+        {
+            switch (type)
+            {
+            case bp_hardware:
+                switch ((BPHWTYPE)subtype)
+                {
+                case hw_access:  return "access";
+                case hw_write:   return "write";
+                case hw_execute: return "execute";
+                default:         return "unknown";
+                }
+            case bp_memory:
+                switch ((BPMEMTYPE)subtype)
+                {
+                case mem_access:  return "access";
+                case mem_read:    return "read";
+                case mem_write:   return "write";
+                case mem_execute: return "execute";
+                default:          return "unknown";
+                }
+            case bp_dll:
+                switch ((BPDLLTYPE)subtype)
+                {
+                case dll_load:   return "load";
+                case dll_unload: return "unload";
+                case dll_all:    return "all";
+                default:         return "unknown";
+                }
+            case bp_exception:
+                switch ((BPEXTYPE)subtype)
+                {
+                case ex_firstchance:  return "first_chance";
+                case ex_secondchance: return "second_chance";
+                case ex_all:          return "all";
+                default:              return "unknown";
+                }
+            default:
+                return nullptr;
+            }
+        }
+
+        static String^ HardwareBreakpointSizeName(unsigned char size)
+        {
+            switch ((BPHWSIZE)size)
+            {
+            case hw_byte:  return "byte";
+            case hw_word:  return "word";
+            case hw_dword: return "dword";
+            case hw_qword: return "qword";
+            default:       return "unknown";
+            }
+        }
+
         static String^ FormatMemoryProtection(DWORD protect)
         {
             char rights[RIGHTS_STRING_SIZE]{};
@@ -426,6 +493,80 @@ namespace x64dbgMCP {
         property Dictionary<String^, LinkRef^>^ Links;
     };
 
+    public ref class BreakpointEntry
+    {
+    public:
+        [JsonPropertyName("type")]
+        property String^ Type;
+
+        [JsonPropertyName("subtype")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Subtype;
+
+        [JsonPropertyName("address")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Address;
+
+        [JsonPropertyName("exceptionCode")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ ExceptionCode;
+
+        [JsonPropertyName("hardwareSize")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ HardwareSize;
+
+        [JsonPropertyName("hardwareSlot")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Nullable<int> HardwareSlot;
+
+        [JsonPropertyName("enabled")]     property bool Enabled;
+        [JsonPropertyName("singleShoot")] property bool SingleShoot;
+        [JsonPropertyName("active")]      property bool Active;
+
+        [JsonPropertyName("name")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Name;
+
+        [JsonPropertyName("module")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Module;
+
+        [JsonPropertyName("hitCount")]   property UInt32 HitCount;
+        [JsonPropertyName("fastResume")] property bool FastResume;
+        [JsonPropertyName("silent")]     property bool Silent;
+
+        [JsonPropertyName("breakCondition")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ BreakCondition;
+
+        [JsonPropertyName("logText")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ LogText;
+
+        [JsonPropertyName("logCondition")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ LogCondition;
+
+        [JsonPropertyName("commandText")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ CommandText;
+
+        [JsonPropertyName("commandCondition")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ CommandCondition;
+    };
+
+    public ref class BreakpointsPayload
+    {
+    public:
+        [JsonPropertyName("data")] property List<BreakpointEntry^>^ Data;
+        [JsonPropertyName("page")] property PageInfo^ Page;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
     public ref class WindowInfo
     {
     public:
@@ -668,6 +809,17 @@ namespace x64dbgMCP {
         std::promise<void> completion;
     };
 
+    struct BridgeBreakpointMap
+    {
+        BPMAP value{};
+
+        ~BridgeBreakpointMap()
+        {
+            if (value.bp)
+                BridgeFree(value.bp);
+        }
+    };
+
     static void SaveLogOnGuiThread(void* userData)
     {
         auto context = static_cast<LogSaveContext*>(userData);
@@ -707,6 +859,7 @@ namespace x64dbgMCP {
             info->Links["windows"] = Helpers::UriLink("x64dbg://windows");
             info->Links["handles"] = Helpers::UriLink("x64dbg://handles");
             info->Links["tcpconnections"] = Helpers::UriLink("x64dbg://tcpconnections");
+            info->Links["breakpoints"] = Helpers::UriLink("x64dbg://breakpoints");
             info->Links["logging"] = Helpers::UriLink("x64dbg://logging");
 
             return MakeJson(info, "x64dbg://session");
@@ -844,6 +997,7 @@ namespace x64dbgMCP {
                 info->Links["windows"] = Helpers::UriLink("x64dbg://windows");
                 info->Links["handles"] = Helpers::UriLink("x64dbg://handles");
                 info->Links["tcpconnections"] = Helpers::UriLink("x64dbg://tcpconnections");
+                info->Links["breakpoints"] = Helpers::UriLink("x64dbg://breakpoints");
             }
 
             return MakeJson(info, "x64dbg://process");
@@ -1067,6 +1221,84 @@ namespace x64dbgMCP {
             return MakeJson(payload, "x64dbg://threads");
         }
 
+#pragma warning(push)
+#pragma warning(disable: 4965)
+        [McpServerResource(UriTemplate = "x64dbg://breakpoints{?offset,limit}", Name = "breakpoints", MimeType = "application/json")]
+        [Description("Paged snapshot of all software, hardware, memory, DLL, and exception breakpoints. Empty when not debugging.")]
+        static ResourceContents^ Breakpoints(RequestContext<ReadResourceRequestParams^>^ requestContext)
+        {
+            String^ requestUri = requestContext != nullptr && requestContext->Params != nullptr
+                ? requestContext->Params->Uri
+                : "x64dbg://breakpoints";
+            int pageOffset = Math::Max(0, QueryInt(requestUri, "offset", 0));
+            int pageLimit = Math::Min(Math::Max(1, QueryInt(requestUri, "limit", 100)), 100);
+
+            auto payload = gcnew BreakpointsPayload();
+            payload->Data = gcnew List<BreakpointEntry^>();
+            payload->Page = gcnew PageInfo();
+            payload->Page->Offset = pageOffset;
+            payload->Page->Limit = pageLimit;
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+            payload->Links["self"] = Helpers::UriLink(BreakpointsPageUri(pageOffset, pageLimit));
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+
+            if (DbgIsDebugging())
+            {
+                BridgeBreakpointMap nativeBreakpoints;
+                DbgGetBpList(bp_none, &nativeBreakpoints.value);
+                payload->Page->Total = nativeBreakpoints.value.count;
+
+                int end = Math::Min(nativeBreakpoints.value.count, pageOffset + pageLimit);
+                for (int i = Math::Min(pageOffset, nativeBreakpoints.value.count); i < end; i++)
+                {
+                    const auto& nativeBreakpoint = nativeBreakpoints.value.bp[i];
+                    auto item = gcnew BreakpointEntry();
+                    item->Type = Helpers::BreakpointTypeName(nativeBreakpoint.type);
+                    item->Subtype = Helpers::BreakpointSubtypeName(nativeBreakpoint.type, nativeBreakpoint.typeEx);
+
+                    if (nativeBreakpoint.type == bp_exception)
+                    {
+                        item->ExceptionCode = Helpers::FormatAddress(nativeBreakpoint.addr);
+                    }
+                    else if (nativeBreakpoint.type != bp_dll)
+                    {
+                        item->Address = Helpers::FormatAddress(nativeBreakpoint.addr);
+                    }
+
+                    if (nativeBreakpoint.type == bp_hardware)
+                    {
+                        item->HardwareSize = Helpers::HardwareBreakpointSizeName(nativeBreakpoint.hwSize);
+                        item->HardwareSlot = Nullable<int>((int)nativeBreakpoint.slot);
+                    }
+
+                    item->Enabled = nativeBreakpoint.enabled;
+                    item->SingleShoot = nativeBreakpoint.singleshoot;
+                    item->Active = nativeBreakpoint.active;
+                    item->Name = Helpers::FromCStrOrNull(nativeBreakpoint.name);
+                    item->Module = Helpers::FromCStrOrNull(nativeBreakpoint.mod);
+                    item->HitCount = nativeBreakpoint.hitCount;
+                    item->FastResume = nativeBreakpoint.fastResume;
+                    item->Silent = nativeBreakpoint.silent;
+                    item->BreakCondition = Helpers::FromCStrOrNull(nativeBreakpoint.breakCondition);
+                    item->LogText = Helpers::FromCStrOrNull(nativeBreakpoint.logText);
+                    item->LogCondition = Helpers::FromCStrOrNull(nativeBreakpoint.logCondition);
+                    item->CommandText = Helpers::FromCStrOrNull(nativeBreakpoint.commandText);
+                    item->CommandCondition = Helpers::FromCStrOrNull(nativeBreakpoint.commandCondition);
+                    payload->Data->Add(item);
+                }
+            }
+
+            payload->Page->HasMore = pageOffset + payload->Data->Count < payload->Page->Total;
+            if (payload->Page->HasMore)
+                payload->Links["next"] = Helpers::UriLink(BreakpointsPageUri(pageOffset + pageLimit, pageLimit));
+            if (pageOffset > 0)
+                payload->Links["prev"] = Helpers::UriLink(BreakpointsPageUri(Math::Max(0, pageOffset - pageLimit), pageLimit));
+
+            return MakeJson(payload, requestUri);
+        }
+#pragma warning(pop)
+
         [McpServerResource(UriTemplate = "x64dbg://windows", Name = "windows", MimeType = "application/json")]
         [Description("Window list for the debugged process, including window metadata and GWLP_USERDATA values.")]
         static ResourceContents^ Windows()
@@ -1215,6 +1447,11 @@ namespace x64dbgMCP {
         static String^ ModuleUri(String^ name)
         {
             return "x64dbg://modules/" + Uri::EscapeDataString(name);
+        }
+
+        static String^ BreakpointsPageUri(int offset, int limit)
+        {
+            return String::Format("x64dbg://breakpoints?offset={0}&limit={1}", offset, limit);
         }
 
         static String^ ModulesPageUri(int offset, int limit)
@@ -1439,92 +1676,6 @@ namespace x64dbgMCP {
             return r;
         }
 
-        [McpServerTool(ReadOnly = true)]
-        [Description(
-            "Read memory from the debugged process. Returns base64-encoded bytes.\n"
-        )]
-        static MemoryReadResult^ MemoryRead(
-            [Description("Address or x64dbg expression (e.g. \"rax\", \"kernel32:CreateFileW\", \"cip+0x10\")")]
-            String^ addr,
-            [Description("Number of bytes to read (1-65536)")]
-            int size,
-            [Description("Compress payload with lz4 before base64 (recommended for size > ~4 KiB)")]
-            [DefaultValue(false)]
-            bool compress)
-        {
-            auto r = gcnew MemoryReadResult();
-            if (size < 1 || size > 65536)
-            {
-                r->Success = false;
-                r->Error = Helpers::MakeError("invalid_argument", "size must be in [1, 65536]");
-                return r;
-            }
-            if (!DbgIsDebugging())
-            {
-                r->Success = false;
-                r->Error = Helpers::MakeError("not_attached", "no active debug session");
-                return r;
-            }
-
-            duint a = 0;
-            if (!Helpers::ResolveExpression(addr, a))
-            {
-                r->Success = false;
-                r->Error = Helpers::MakeError("not_found", "could not resolve address: " + addr);
-                return r;
-            }
-
-            array<unsigned char>^ buf = gcnew array<unsigned char>(size);
-            {
-                pin_ptr<unsigned char> p = &buf[0];
-                if (!DbgMemRead(a, p, (duint)size))
-                {
-                    r->Success = false;
-                    r->Error = Helpers::MakeError("x64dbg_failed", "DbgMemRead failed");
-                    return r;
-                }
-            }
-
-            r->Address = Helpers::FormatAddress(a);
-            r->Size = size;
-
-            if (compress)
-            {
-                int bound = LZ4_compressBound(size);
-                if (bound <= 0)
-                {
-                    r->Success = false;
-                    r->Error = Helpers::MakeError("internal", "LZ4_compressBound returned non-positive");
-                    return r;
-                }
-                std::vector<char> out((size_t)bound);
-                int compressed;
-                {
-                    pin_ptr<unsigned char> p = &buf[0];
-                    compressed = LZ4_compress(reinterpret_cast<const char*>(p), out.data(), size);
-                }
-                if (compressed <= 0)
-                {
-                    r->Success = false;
-                    r->Error = Helpers::MakeError("internal", "LZ4_compress failed");
-                    return r;
-                }
-                array<unsigned char>^ cbuf = gcnew array<unsigned char>(compressed);
-                Marshal::Copy(IntPtr((void*)out.data()), cbuf, 0, compressed);
-
-                r->Encoding = "lz4";
-                r->Base64 = Convert::ToBase64String(cbuf);
-                r->CompressedSize = compressed;
-            }
-            else
-            {
-                r->Encoding = "raw";
-                r->Base64 = Convert::ToBase64String(buf);
-            }
-
-            r->Success = true;
-            return r;
-        }
     };
 
     // ────────────────────────────────────────────────────────────────
@@ -1754,6 +1905,34 @@ namespace x64dbgMCP {
 
         [McpServerTool]
         [Description(
+            "Memory operations. Actions:\n"
+            "  read : { addr, size, compress? } -> base64-encoded bytes; compress=true uses an lz4 block"
+        )]
+        static Object^ Memory(
+            [Description("Action: \"read\"")]
+            String^ action,
+            [Description("Address or x64dbg expression (required for action=read; e.g. \"rax\", \"kernel32:CreateFileW\", \"cip+0x10\")")]
+            [DefaultValue("")]
+            String^ addr,
+            [Description("Number of bytes to read (1-65536; required for action=read)")]
+            [DefaultValue(0)]
+            int size,
+            [Description("Compress action=read payload with lz4 before base64 (recommended for size > ~4 KiB)")]
+            [DefaultValue(false)]
+            bool compress)
+        {
+            if (action == "read") return MemoryRead(addr, size, compress);
+
+            auto r = gcnew MemoryReadResult();
+            r->Success = false;
+            r->Error = Helpers::MakeError(
+                "invalid_argument",
+                "unknown action: " + (action ? action : "<null>") + "; expected read");
+            return r;
+        }
+
+        [McpServerTool]
+        [Description(
             "Registers control. Actions:\n"
             "  get  : { name } -> { name, value }       — name is any x64dbg-known register/flag (rax, eip, zf, r8d, _zf...).\n"
             "  set  : { name, value } -> { name, value, previous } — value accepts any x64dbg expression.\n"
@@ -1842,6 +2021,82 @@ namespace x64dbgMCP {
         }
 
     private:
+        static MemoryReadResult^ MemoryRead(String^ addr, int size, bool compress)
+        {
+            auto r = gcnew MemoryReadResult();
+            if (size < 1 || size > 65536)
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("invalid_argument", "size must be in [1, 65536]");
+                return r;
+            }
+            if (!DbgIsDebugging())
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("not_attached", "no active debug session");
+                return r;
+            }
+
+            duint a = 0;
+            if (!Helpers::ResolveExpression(addr, a))
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("not_found", "could not resolve address: " + addr);
+                return r;
+            }
+
+            array<unsigned char>^ buf = gcnew array<unsigned char>(size);
+            {
+                pin_ptr<unsigned char> p = &buf[0];
+                if (!DbgMemRead(a, p, (duint)size))
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError("x64dbg_failed", "DbgMemRead failed");
+                    return r;
+                }
+            }
+
+            r->Address = Helpers::FormatAddress(a);
+            r->Size = size;
+
+            if (compress)
+            {
+                int bound = LZ4_compressBound(size);
+                if (bound <= 0)
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError("internal", "LZ4_compressBound returned non-positive");
+                    return r;
+                }
+                std::vector<char> out((size_t)bound);
+                int compressed;
+                {
+                    pin_ptr<unsigned char> p = &buf[0];
+                    compressed = LZ4_compress(reinterpret_cast<const char*>(p), out.data(), size);
+                }
+                if (compressed <= 0)
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError("internal", "LZ4_compress failed");
+                    return r;
+                }
+                array<unsigned char>^ cbuf = gcnew array<unsigned char>(compressed);
+                Marshal::Copy(IntPtr((void*)out.data()), cbuf, 0, compressed);
+
+                r->Encoding = "lz4";
+                r->Base64 = Convert::ToBase64String(cbuf);
+                r->CompressedSize = compressed;
+            }
+            else
+            {
+                r->Encoding = "raw";
+                r->Base64 = Convert::ToBase64String(buf);
+            }
+
+            r->Success = true;
+            return r;
+        }
+
         static String^ BuildInitCommand(String^ exePath, String^ cmdLine, String^ curFolder)
         {
             auto sb = gcnew StringBuilder("init ");

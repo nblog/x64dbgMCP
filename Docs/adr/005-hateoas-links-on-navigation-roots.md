@@ -71,7 +71,7 @@ A `LinkRef` is **either** `{uri}` (resource navigation) or `{tool, args}` (tool 
 
 **Negative**
 
-- Inconsistency: a `ModuleInfo` from `x64dbg://modules/{name}` carries `_links`, but the same `ModuleInfo` embedded as a `BreakpointEntry.Module` field does not. Mitigation: `_links` is part of the **response envelope** semantically, not part of the entity. When `ModuleInfo` is embedded, only its data fields appear; the parent's `_links` covers navigation.
+- Inconsistency: a `ModuleInfo` from `x64dbg://modules/{name}` carries `_links`, while leaf records such as `BreakpointEntry` keep only scalar module identifiers. Mitigation: `_links` is part of the **response envelope** semantically, not part of the entity; the parent's `_links` covers navigation.
 - Agents calibrated to GhydraMCP-style universal `_links` may not look for navigation hints on leaf items. Acceptable: our leaves are domain-uniform (disassembly entries, memory regions) and don't need per-item navigation in practice.
 
 **Constraints on future work**

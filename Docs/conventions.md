@@ -11,7 +11,7 @@ This document encodes the **non-negotiable rules** for shaping MCP tools, resour
 | Element | Rule | Example |
 |---|---|---|
 | Tool method (managed) | `PascalCase`, verb-first | `Disassemble`, `GetMemoryMap`, `FindPattern` |
-| Tool `Name` (MCP-visible) | `snake_case`; MCP C# SDK 2.1.0 derives this from the managed method when `Name` is unset | `Disassemble` → `disassemble`, `MemoryRead` → `memory_read` |
+| Tool `Name` (MCP-visible) | `snake_case`; MCP C# SDK 2.1.0 derives this from the managed method when `Name` is unset | `Disassemble` → `disassemble`, `Memory` → `memory` |
 | Action-mega tool | Lowercase family/control noun; the `action` parameter normally uses `snake_case` | `breakpoints{action:"get"\|"set"\|"delete"\|"set_batch"}` |
 | Resource URI scheme | `x64dbg://` (single scheme for the whole project) | — |
 | Resource URI template | `lowercase`, hyphenated, hierarchical, plural collections | `x64dbg://modules`, `x64dbg://modules/{name}/sections` |
@@ -170,10 +170,10 @@ The response includes:
 }
 ```
 
-Hot-path single-target tools (`disassemble`, `memory_read`, `find_pattern`) use bulk parameters instead of pagination:
+Hot-path single-target operations (`disassemble`, `memory{action:"read"}`, `find_pattern`) use bulk parameters instead of pagination:
 
 - `disassemble(addr, count)` — `count` ≤ 200 (per-call ceiling)
-- `memory_read(addr, size)` — `size` ≤ 64 KiB
+- `memory{action:"read", addr, size, compress?}` — `size` ≤ 64 KiB
 - `find_pattern(pattern, maxResults)` — `maxResults` ≤ 256
 
 These ceilings exist to bound a single MCP response; clients that need more issue follow-up calls.

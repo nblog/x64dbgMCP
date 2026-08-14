@@ -40,7 +40,6 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 |---|---|
 | `ParseExpression(expr)` | 把任意表达式解析为地址 + 所属模块/节 |
 | `Disassemble(addr, count, withBytes?)` | 反汇编 N 条指令，可选返回原始字节 |
-| `MemoryRead(addr, size, compress?)` | 读内存，base64 返回；`compress=true` 用 lz4 压缩以放大单次返回窗口 |
 
 ### Action-mega Tools — CRUD 家族 / 控制簇
 
@@ -61,7 +60,7 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 - `DebugControl { init, run, stop, pause, StepInto, StepOver, StepOut, run_command }`
 - `Registers { get, set, dump }` — 名称由 x64dbg 解析，覆盖任意寄存器/标志
 - `Assemble(addr, instruction, fillNops?)`
-- `Memory { read, write, alloc, free }`
+- `Memory { read(addr, size, compress?), write, alloc, free }` — `read` 以 base64 返回；`compress=true` 使用 lz4
 - `Threads { get, set_name, set_active, suspend, resume, create_at }`
 - `Breakpoints { get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch }`
 

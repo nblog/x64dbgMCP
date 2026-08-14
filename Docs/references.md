@@ -91,6 +91,9 @@ When implementing a `debug_control` action that maps onto a raw command, consult
 
 - [x64dbg/x64dbg](https://github.com/x64dbg/x64dbg) — main repository
 - [x64dbg pluginsdk source](https://github.com/x64dbg/x64dbg/tree/development/src/dbg/pluginsdk) — authoritative source for pluginsdk headers (compare against vendored copies during SDK upgrades)
+- [`_dbg_getbplist` at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/_exports.cpp#L749-L804) — `DbgGetBpList(bp_none, ...)` enumerates every breakpoint type and allocates the returned `BPMAP.bp` with `BridgeAlloc`
+- [`BpGetList` at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/breakpoint.cpp#L102-L126) — breakpoint address normalization used by `x64dbg://breakpoints`
+- [`BpToBridgeTypeEx` / `BpToBridge` at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/breakpoint.cpp#L750-L881) — `BRIDGEBP` field and subtype semantics used by `x64dbg://breakpoints`
 - [`disasm_fast.cpp` at `37e8d517`](https://github.com/x64dbg/x64dbg/blob/37e8d517b8cac411c926f49095b8938bff228a8f/src/dbg/disasm_fast.cpp#L11-L79) — `DbgDisasmFastAt` instruction text and `BASIC_INSTRUCTION_INFO::memory.value` semantics, including RIP-relative effective-address calculation
 - [`SymbolFromAddressExact` at `37e8d517`](https://github.com/x64dbg/x64dbg/blob/37e8d517b8cac411c926f49095b8938bff228a8f/src/dbg/symbolinfo.cpp#L497-L528) — exact symbol lookup order: loaded symbols precede module imports, so `SYMBOLINFO.type` alone is not a stable IAT classifier while symbols are loading
 - [LogView.cpp — save](https://github.com/x64dbg/x64dbg/blob/749bd554c58f0e3fa2091e67373d949845ef073e/src/gui/Src/Gui/LogView.cpp#L471-L484) — `GuiLogSave` handling: append-mode `QFile`, rendered UTF-8 log contents, and save-status message
@@ -99,11 +102,11 @@ When implementing a `debug_control` action that maps onto a raw command, consult
 
 ### Bundled compression (lz4)
 
-x64dbg ships architecture-specific lz4 import libraries and headers in the pluginsdk ([`pluginsdk/lz4/`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/)), with the runtime implementation provided by `lz4.dll` in each x64dbg release architecture directory. The plugin imports the legacy block API (`LZ4_compress` and `LZ4_compressBound`); clients may use `LZ4_decompress_safe` to decode an opted-in `memory_read` response.
+x64dbg ships architecture-specific lz4 import libraries and headers in the pluginsdk ([`pluginsdk/lz4/`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/)), with the runtime implementation provided by `lz4.dll` in each x64dbg release architecture directory. The plugin imports the legacy block API (`LZ4_compress` and `LZ4_compressBound`); clients may use `LZ4_decompress_safe` to decode an opted-in `memory{action:"read"}` response.
 
 - [lz4 reference](https://github.com/lz4/lz4/blob/dev/lib/lz4.h) — upstream API; the bundled headers are an older snapshot, so prefer the bundled signatures over upstream-only additions
 - Bundled headers: [`lz4.h`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/lz4.h) (block), [`lz4hc.h`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/lz4hc.h) (high-compression), [`lz4file.h`](../x64dbgMCP/plugintemplate/pluginsdk/lz4/lz4file.h) (file IO — unused by us)
-- Wire format used by `memory_read{compress=true}`: lz4 block bytes (no frame header, no length prefix). Decompressors must know the original size — the response exposes it as `size`. Reference: [x64dbgpy3 — RequestBuffer::Serialize](https://github.com/nblog/x64dbgpy3/blob/main/x64dbgpy3svr/x64dbghandler.hpp#L25-L144) (uses a 4-byte big-endian length header *plus* the lz4 bytes; this project omits the header because the JSON envelope already carries `size`)
+- Wire format used by `memory{action:"read", compress:true}`: lz4 block bytes (no frame header, no length prefix). Decompressors must know the original size — the response exposes it as `size`. Reference: [x64dbgpy3 — RequestBuffer::Serialize](https://github.com/nblog/x64dbgpy3/blob/main/x64dbgpy3svr/x64dbghandler.hpp#L25-L144) (uses a 4-byte big-endian length header *plus* the lz4 bytes; this project omits the header because the JSON envelope already carries `size`)
 
 ---
 

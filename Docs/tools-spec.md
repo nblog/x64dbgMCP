@@ -78,7 +78,7 @@ public:
     property String^ X64dbgDirectory;   // BridgeUserDirectory()
     property bool IsDebugging;
     property bool IsRunning;
-    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/maps, threads, windows, handles, tcpconnections, logging
+    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/maps, threads, windows, handles, tcpconnections, breakpoints, logging
 };
 ```
 
@@ -114,7 +114,7 @@ public:
     // property String^ KUserSharedData;    // KUSER_SHARED_DATA address (hex)
     property String^ Path;               // full path to the executable
     property String^ CommandLine;        // full Unicode command line; null when unavailable
-    property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory/maps, threads, windows, handles, tcpconnections
+    property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory/maps, threads, windows, handles, tcpconnections, breakpoints
 };
 ```
 
@@ -277,6 +277,65 @@ public:
 durations, not timestamps; all three are serialized as strings, while the two durations
 use the same representation as x64dbg's Threads view.
 
+### `x64dbg://breakpoints{?offset,limit}` 🟢
+
+Paged snapshot of all breakpoint types returned by `DbgGetBpList(bp_none, ...)`. `offset`
+defaults to `0`; `limit` defaults to `100` and is clamped to `1–100`. The response is an empty
+page when there is no active debug session. The native `BPMAP.bp` allocation is released with
+`BridgeFree` after the managed snapshot has been materialized.
+
+`BRIDGEBP.addr` is type-dependent. For normal, hardware, and memory breakpoints it is exposed
+as `Address`. For exception breakpoints it is an exception code and is exposed separately as
+`ExceptionCode`. A DLL breakpoint stores a module-name hash in `addr`; that internal lookup key
+is not an address and is intentionally omitted. `Module` identifies the DLL breakpoint instead.
+
+`Subtype` normalizes `BRIDGEBP.typeEx` according to `Type`:
+
+- hardware: `"access" | "write" | "execute"`
+- memory: `"access" | "read" | "write" | "execute"`
+- DLL: `"load" | "unload" | "all"`
+- exception: `"first_chance" | "second_chance" | "all"`
+- normal: `null`
+
+```cpp
+public ref class BreakpointEntry
+{
+public:
+    property String^ Type;              // "normal" | "hardware" | "memory" | "dll" | "exception"
+    property String^ Subtype;           // normalized typeEx value; null for normal
+    property String^ Address;           // hex VA/native location for normal, hardware, or memory; otherwise null
+    property String^ ExceptionCode;     // hex exception code for exception; otherwise null
+    property String^ HardwareSize;      // "byte" | "word" | "dword" | "qword" for hardware; otherwise null
+    property Nullable<int> HardwareSlot; // 0..3 for hardware; otherwise null
+    property bool Enabled;
+    property bool SingleShoot;
+    property bool Active;
+    property String^ Name;
+    property String^ Module;
+    property unsigned int HitCount;
+    property bool FastResume;
+    property bool Silent;
+    property String^ BreakCondition;
+    property String^ LogText;
+    property String^ LogCondition;
+    property String^ CommandText;
+    property String^ CommandCondition;
+};
+
+public ref class BreakpointsPayload
+{
+public:
+    property List<BreakpointEntry^>^ Data;
+    property PageInfo^ Page;
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process, next?, prev?
+};
+```
+
+Empty optional native text fields are omitted from the JSON payload. `Address`,
+`ExceptionCode`, `HardwareSize`, and `HardwareSlot` are mutually constrained by `Type`; the
+resource never exposes the DLL breakpoint's internal module hash as an address. As a navigation
+root, the Resource links back to session/process and supplies page-local self/next/prev links.
+
 ### `x64dbg://windows` 🟢
 
 List of windows returned by x64dbg's `DbgFunctions()->EnumWindows`. `Data` is empty when
@@ -370,7 +429,7 @@ public:
 
 ## 3. Rich-param Tools (always-registered analysis, read-only — `McpAnalysisTools`)
 
-This section covers the six always-registered analysis queries. The debugger-domain `assemble` Tool uses the same rich-param form but is documented in §5 because it belongs behind the `enableDebugging` catalog gate.
+This section covers the five always-registered analysis queries. The debugger-domain `assemble` Tool uses the same rich-param form but is documented in §5 because it belongs behind the `enableDebugging` catalog gate.
 
 ### `disassemble(addr, count, withBytes?)` 🟢
 
@@ -440,33 +499,6 @@ imports. The symbolized display is a stable Tool representation constructed from
 metadata and the debugger symbol table, rather than the GUI's setting-dependent rendered line.
 
 Errors: `not_attached`, `invalid_argument` (count out of range), `not_found` (addr unresolvable), `x64dbg_failed` (unreadable address, disassembly failure, or byte-read failure).
-
-### `memory_read(addr, size, compress?)` 🟢
-
-```cpp
-[McpServerTool(ReadOnly = true),
- Description("Read memory from the debugged process. Returns base64-encoded bytes.")]
-MemoryReadResult^ MemoryRead(
-    [Description("Address or x64dbg expression")] String^ addr,
-    [Description("Number of bytes to read (1–65536)")] int size,
-    [Description("Compress payload with lz4 before base64 (recommended for size > ~4 KiB)")]
-    bool compress
-);
-
-public ref class MemoryReadResult : McpResult
-{
-public:
-    property String^ Address;        // resolved hex
-    property int Size;               // original (uncompressed) byte count
-    property String^ Encoding;       // "raw" | "lz4"
-    property String^ Base64;
-    property int CompressedSize;     // present iff Encoding == "lz4"
-};
-```
-
-When `compress=true`, the client decodes base64 and then runs `LZ4_decompress_safe` (lz4 block format, no frame header) to recover `Size` bytes. The option can reduce compressible memory windows but does not guarantee a smaller payload; the response reports `CompressedSize` so the client can account for the actual result. The default is `false` so simple reads stay round-trip-cheap.
-
-Errors: `not_attached`, `invalid_argument` (size out of range), `not_found` (addr unresolvable), `x64dbg_failed` (memory read failure), `internal` (unexpected lz4 failure).
 
 ### `find_pattern(pattern, scope?, maxResults?)` 🟢
 
@@ -673,21 +705,9 @@ Errors: `invalid_argument` (unknown action or missing action-specific parameter)
 
 ### `breakpoints{get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}` 🟡
 
-Bulk enumeration uses `x64dbg://breakpoints`.
-
-```cpp
-public ref class BreakpointEntry
-{
-public:
-    property String^ Address;
-    property String^ Type;           // "normal" | "hardware" | "memory" | "dll" | "exception"
-    property String^ HwType;         // "access" | "write" | "execute" | null
-    property bool Enabled;
-    property int HitCount;
-    property String^ Module;
-    property String^ Condition;      // x64dbg conditional expression if any
-};
-```
+Bulk enumeration and the shared `BreakpointEntry` wire vocabulary are defined by
+`x64dbg://breakpoints`. The Tool supplies precise per-item reads and mutations; it must not add
+an equivalent unfiltered bulk-list action.
 
 ### `registers{get, set, dump}` 🟢
 
@@ -724,13 +744,44 @@ Flags includes: zf, of, cf, pf, sf, tf, af, df, if
 
 Errors: `invalid_argument` (unknown action, missing name/value, invalid value, or negative `threadId`), `not_attached`, `not_found` (unknown register/flag or thread), `not_paused` (inactive-thread dump while running), `x64dbg_failed` (write or native thread-context failure).
 
-### `memory{write, alloc, free}` 🟡
+### `memory{read, write, alloc, free}` 🟡
 
 | Action | Params | Returns |
 |---|---|---|
+| `read` | `{ addr: string, size: int, compress?: bool }` | `MemoryReadResult` |
 | `write` | `{ addr: string, base64: string }` | `{ written: int }` |
 | `alloc` | `{ size: int, addr?: string }` | `{ address: string, size: int }` |
 | `free` | `{ addr: string }` | `{ freed: bool }` |
+
+The `read` action preserves the earlier standalone `memory_read(addr, size, compress?)` contract; only the MCP-visible entry point and debugger-catalog membership change. Its flattened Tool arguments are `{ action: "read", addr, size, compress? }`, with no nested `params` object. `size` remains bounded to `1–65536`, and `compress` defaults to `false`.
+
+```cpp
+[McpServerTool,
+ Description("Memory operations. The currently implemented action is read.")]
+Object^ Memory(
+    [Description("Action: \"read\"")] String^ action,
+    [Description("Address or x64dbg expression (required for action=read)")] String^ addr,
+    [Description("Number of bytes to read (1–65536; required for action=read)")] int size,
+    [Description("Compress action=read payload with lz4 before base64")]
+    bool compress
+);
+
+public ref class MemoryReadResult : McpResult
+{
+public:
+    property String^ Address;        // resolved hex
+    property int Size;               // original (uncompressed) byte count
+    property String^ Encoding;       // "raw" | "lz4"
+    property String^ Base64;
+    property int CompressedSize;     // present iff Encoding == "lz4"
+};
+```
+
+When `compress=true`, the client decodes base64 and then runs `LZ4_decompress_safe` (lz4 block format, no frame header) to recover `Size` bytes. The option can reduce compressible memory windows but does not guarantee a smaller payload; the response reports `CompressedSize` so the client can account for the actual result. The default is `false` so simple reads stay round-trip-cheap.
+
+The family is not marked `ReadOnly=true` because later actions mutate the debuggee. The current implementation exposes only `read`; `write`, `alloc`, and `free` remain target actions and must not be advertised as implemented in the live Tool description until their dispatch paths exist.
+
+Read errors: `not_attached`, `invalid_argument` (unknown action or size out of range), `not_found` (addr unresolvable), `x64dbg_failed` (memory read failure), `internal` (unexpected lz4 failure).
 
 ### `threads{get, set_name, set_active, suspend, resume, create_at}` 🟡
 
@@ -790,7 +841,7 @@ Errors: `invalid_argument` (unknown action or missing `text` for `put`).
 
 ## 6. Reserved Resources (not yet implemented)
 
-The following Resource names are **reserved** in the URI namespace. Their current ⚪ entries are target sketches rather than implementation-ready schemas, and none is registered by the current server. Their corresponding Tools perform precise item operations, so this cross-layer pairing follows ADR-003 rather than duplicating the bulk read.
+The following five Resource names are **reserved** in the URI namespace. Their current ⚪ entries are target sketches rather than implementation-ready schemas, and none is registered by the current server. Their corresponding Tools perform precise item operations, so this cross-layer pairing follows ADR-003 rather than duplicating the bulk read.
 
 ### `x64dbg://symbols` ⚪
 
@@ -857,24 +908,6 @@ public:
 };
 ```
 
-### `x64dbg://breakpoints` ⚪
-
-Returns `List<BreakpointEntry>` across all modules. All breakpoint types.
-
-```cpp
-public ref class BreakpointEntry
-{
-public:
-    property String^ Address;        // hex
-    property String^ Type;           // "normal" | "hardware" | "memory" | "dll" | "exception"
-    property String^ HwType;         // "access" | "write" | "execute" | null
-    property bool Enabled;
-    property int HitCount;
-    property String^ Module;
-    property String^ Condition;      // x64dbg conditional expression if any
-};
-```
-
 ---
 
 ## 7. Out of Scope (deliberately not exposed)
@@ -905,7 +938,7 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | `GetXrefs`, `AddXref`, `GetXrefCountAt`, `GetXrefTypeAt` | `xrefs{...}` | |
 | `GetModuleList`, `GetMainModuleInfo`, `GetModuleByAddr`, `GetModuleByName`, `GetMainModuleSectionList`, `GetSectionListByAddr`, `GetSectionListByName`, `GetExports`, `GetImports` | resources `x64dbg://modules/...` | All become URI-addressable |
 | `IsValidPtr`, `GetMemoryMaps`, `GetMemoryBase`, `GetMemorySize` | resource `x64dbg://memory/maps` + tool `parse_expression` | Most queries reduce to expression resolution |
-| `MemoryRead` | tool `memory_read` | Added optional `compress` (lz4) for large reads |
+| `MemoryRead` | `memory{action:"read"}` | Preserves `addr`, `size`, and optional `compress` (lz4); standalone Tool removed |
 | `GetThreadList` | resource `x64dbg://threads` | |
 | `Disassemble` | tool `disassemble` | Same operation, raised `count` ceiling |
 | `FindPattern` | tool `find_pattern` | Added `scope`, `maxResults` |
@@ -921,4 +954,4 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | `LogPuts` | `logging{action:"put"}` | `x64dbg://logging` supplies the read snapshot; `logging{action:"clear"}` adds the matching clear action |
 | `Gui*`, `Script*`, `*Watch*` | (excluded) | See §7 |
 
-Target surface: **19 Resources + 7 rich-param Tools (including gated `assemble`) + 12 action-mega Tools = 38 entries**. Only the 19 Tool definitions consume the AI tool-schema budget; with the debugger-domain catalog disabled, the default Tool catalog is 12 definitions (PoC was 50+).
+Target surface: **19 Resources + 6 rich-param Tools (including gated `assemble`) + 12 action-mega Tools = 37 entries**. Only the 18 Tool definitions consume the AI tool-schema budget; with the debugger-domain catalog disabled, the default Tool catalog is 11 definitions (PoC was 50+).

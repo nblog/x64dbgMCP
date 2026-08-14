@@ -111,14 +111,14 @@ The MCP-visible surface is split into three forms based on access pattern. Detai
 | Form | When | Examples |
 |---|---|---|
 | **Resource** (`[McpServerResource]`) | Read-only bulk snapshots and collection navigation | `x64dbg://logging`, `x64dbg://modules`, `x64dbg://modules/{name}/sections`, `x64dbg://memory/maps`, `x64dbg://windows`, `x64dbg://handles`, `x64dbg://tcpconnections` |
-| **Rich-param Tool** (`[McpServerTool]`) | Focused operations over one target or a bounded hot-path window | `disassemble(addr, count)`, `memory_read(addr, size)`, `find_pattern(pattern, maxResults)`, `assemble(addr, instruction)` |
-| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Fine-grained per-item reads/updates and debugger control clusters | `labels{get/set/delete + batch}`, `debug_control{init/run/pause/Step*}`, `breakpoints{get/set/delete + batch}` |
+| **Rich-param Tool** (`[McpServerTool]`) | Focused operations over one target or a bounded hot-path window | `disassemble(addr, count)`, `find_pattern(pattern, maxResults)`, `assemble(addr, instruction)` |
+| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Fine-grained per-item reads/updates and debugger control clusters | `labels{get/set/delete + batch}`, `debug_control{init/run/pause/Step*}`, `breakpoints{get/set/delete + batch}`, `memory{read/write/alloc/free}` |
 
 A Resource and Tool may cover the same domain when their access patterns differ: the Resource is the compact bulk-read surface, while the Tool addresses or changes individual items. They must not duplicate the same operation with equivalent inputs and outputs.
 
 `x64dbg://logging` is backed by `GuiLogSave`, the upstream API for snapshotting the rendered Log view. Because that API accepts only a filename, each read marshals the save to the GUI thread, materializes a unique host temporary file, reads it as UTF-8, and immediately deletes it after the successful read. x64dbg stops the LogView flush timer while the Log tab is hidden, so messages still in its private pending buffer are not part of the rendered document until upstream displays the tab and flushes them.
 
-The `enableDebugging` flag on `McpServerHost::Start` controls whether the debugger-domain `McpDebuggingTools` catalog is registered. Its purpose is to keep execution control, breakpoints, registers, memory mutation, thread control, assembly, and logging from inflating every agent's tool schema. It is **not** a general read/write or authorization boundary: analysis-domain tools may update x64dbg analysis metadata while remaining in the always-registered `McpAnalysisTools` catalog.
+The `enableDebugging` flag on `McpServerHost::Start` controls whether the debugger-domain `McpDebuggingTools` catalog is registered. Its purpose is to keep execution control, breakpoints, registers, memory operations, thread control, assembly, and logging from inflating every agent's tool schema. It is **not** a general read/write or authorization boundary: analysis-domain tools may update x64dbg analysis metadata while remaining in the always-registered `McpAnalysisTools` catalog.
 
 ---
 
