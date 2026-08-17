@@ -128,6 +128,16 @@ namespace x64dbgMCP {
             return s && *s ? gcnew String(s) : nullptr;
         }
 
+        static String^ FromUtf8OrNull(const char* s)
+        {
+            if (!s || !*s) return nullptr;
+
+            int length = (int)strlen(s);
+            auto bytes = gcnew array<unsigned char>(length);
+            Marshal::Copy(IntPtr((void*)s), bytes, 0, length);
+            return Encoding::UTF8->GetString(bytes);
+        }
+
         static String^ BreakpointTypeName(BPXTYPE type)
         {
             switch (type)
@@ -750,6 +760,14 @@ namespace x64dbgMCP {
         property String^ CommandOutput;
     };
 
+    public ref class BreakpointResult : McpResult
+    {
+    public:
+        [JsonPropertyName("data")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property BreakpointEntry^ Data;
+    };
+
     public ref class RegistersOpResult : McpResult
     {
     public:
@@ -831,6 +849,98 @@ namespace x64dbgMCP {
         delete context;
     }
 #pragma managed
+
+    ref class BreakpointSnapshots abstract sealed
+    {
+    public:
+        static List<BreakpointEntry^>^ ReadAll()
+        {
+            auto result = gcnew List<BreakpointEntry^>();
+            if (!DbgIsDebugging()) return result;
+
+            BridgeBreakpointMap nativeBreakpoints;
+            DbgGetBpList(bp_none, &nativeBreakpoints.value);
+            for (int i = 0; i < nativeBreakpoints.value.count; i++)
+                result->Add(FromNative(nativeBreakpoints.value.bp[i]));
+            return result;
+        }
+
+        static BreakpointEntry^ Find(BPXTYPE type, duint address)
+        {
+            if (!DbgIsDebugging()) return nullptr;
+
+            BridgeBreakpointMap nativeBreakpoints;
+            DbgGetBpList(bp_none, &nativeBreakpoints.value);
+            for (int i = 0; i < nativeBreakpoints.value.count; i++)
+            {
+                const auto& nativeBreakpoint = nativeBreakpoints.value.bp[i];
+                if (nativeBreakpoint.type == type && nativeBreakpoint.addr == address)
+                    return FromNative(nativeBreakpoint);
+            }
+            return nullptr;
+        }
+
+        static void FindNormalAndHardware(
+            duint address,
+            [Out] BreakpointEntry^% normal,
+            [Out] BreakpointEntry^% hardware)
+        {
+            normal = nullptr;
+            hardware = nullptr;
+            if (!DbgIsDebugging()) return;
+
+            BridgeBreakpointMap nativeBreakpoints;
+            DbgGetBpList(bp_none, &nativeBreakpoints.value);
+            for (int i = 0; i < nativeBreakpoints.value.count; i++)
+            {
+                const auto& nativeBreakpoint = nativeBreakpoints.value.bp[i];
+                if (nativeBreakpoint.addr != address)
+                    continue;
+                if (nativeBreakpoint.type == bp_normal)
+                    normal = FromNative(nativeBreakpoint);
+                else if (nativeBreakpoint.type == bp_hardware)
+                    hardware = FromNative(nativeBreakpoint);
+            }
+        }
+
+    private:
+        static BreakpointEntry^ FromNative(const BRIDGEBP& nativeBreakpoint)
+        {
+            auto item = gcnew BreakpointEntry();
+            item->Type = Helpers::BreakpointTypeName(nativeBreakpoint.type);
+            item->Subtype = Helpers::BreakpointSubtypeName(nativeBreakpoint.type, nativeBreakpoint.typeEx);
+
+            if (nativeBreakpoint.type == bp_exception)
+            {
+                item->ExceptionCode = Helpers::FormatAddress(nativeBreakpoint.addr);
+            }
+            else if (nativeBreakpoint.type != bp_dll)
+            {
+                item->Address = Helpers::FormatAddress(nativeBreakpoint.addr);
+            }
+
+            if (nativeBreakpoint.type == bp_hardware)
+            {
+                item->HardwareSize = Helpers::HardwareBreakpointSizeName(nativeBreakpoint.hwSize);
+                item->HardwareSlot = Nullable<int>((int)nativeBreakpoint.slot);
+            }
+
+            item->Enabled = nativeBreakpoint.enabled;
+            item->SingleShoot = nativeBreakpoint.singleshoot;
+            item->Active = nativeBreakpoint.active;
+            item->Name = Helpers::FromCStrOrNull(nativeBreakpoint.name);
+            item->Module = Helpers::FromCStrOrNull(nativeBreakpoint.mod);
+            item->HitCount = nativeBreakpoint.hitCount;
+            item->FastResume = nativeBreakpoint.fastResume;
+            item->Silent = nativeBreakpoint.silent;
+            item->BreakCondition = Helpers::FromUtf8OrNull(nativeBreakpoint.breakCondition);
+            item->LogText = Helpers::FromUtf8OrNull(nativeBreakpoint.logText);
+            item->LogCondition = Helpers::FromUtf8OrNull(nativeBreakpoint.logCondition);
+            item->CommandText = Helpers::FromUtf8OrNull(nativeBreakpoint.commandText);
+            item->CommandCondition = Helpers::FromUtf8OrNull(nativeBreakpoint.commandCondition);
+            return item;
+        }
+    };
 
     // ────────────────────────────────────────────────────────────────
     //  Resources — McpResources (ADR-003 Layer A)
@@ -1245,48 +1355,12 @@ namespace x64dbgMCP {
 
             if (DbgIsDebugging())
             {
-                BridgeBreakpointMap nativeBreakpoints;
-                DbgGetBpList(bp_none, &nativeBreakpoints.value);
-                payload->Page->Total = nativeBreakpoints.value.count;
+                auto snapshot = BreakpointSnapshots::ReadAll();
+                payload->Page->Total = snapshot->Count;
 
-                int end = Math::Min(nativeBreakpoints.value.count, pageOffset + pageLimit);
-                for (int i = Math::Min(pageOffset, nativeBreakpoints.value.count); i < end; i++)
-                {
-                    const auto& nativeBreakpoint = nativeBreakpoints.value.bp[i];
-                    auto item = gcnew BreakpointEntry();
-                    item->Type = Helpers::BreakpointTypeName(nativeBreakpoint.type);
-                    item->Subtype = Helpers::BreakpointSubtypeName(nativeBreakpoint.type, nativeBreakpoint.typeEx);
-
-                    if (nativeBreakpoint.type == bp_exception)
-                    {
-                        item->ExceptionCode = Helpers::FormatAddress(nativeBreakpoint.addr);
-                    }
-                    else if (nativeBreakpoint.type != bp_dll)
-                    {
-                        item->Address = Helpers::FormatAddress(nativeBreakpoint.addr);
-                    }
-
-                    if (nativeBreakpoint.type == bp_hardware)
-                    {
-                        item->HardwareSize = Helpers::HardwareBreakpointSizeName(nativeBreakpoint.hwSize);
-                        item->HardwareSlot = Nullable<int>((int)nativeBreakpoint.slot);
-                    }
-
-                    item->Enabled = nativeBreakpoint.enabled;
-                    item->SingleShoot = nativeBreakpoint.singleshoot;
-                    item->Active = nativeBreakpoint.active;
-                    item->Name = Helpers::FromCStrOrNull(nativeBreakpoint.name);
-                    item->Module = Helpers::FromCStrOrNull(nativeBreakpoint.mod);
-                    item->HitCount = nativeBreakpoint.hitCount;
-                    item->FastResume = nativeBreakpoint.fastResume;
-                    item->Silent = nativeBreakpoint.silent;
-                    item->BreakCondition = Helpers::FromCStrOrNull(nativeBreakpoint.breakCondition);
-                    item->LogText = Helpers::FromCStrOrNull(nativeBreakpoint.logText);
-                    item->LogCondition = Helpers::FromCStrOrNull(nativeBreakpoint.logCondition);
-                    item->CommandText = Helpers::FromCStrOrNull(nativeBreakpoint.commandText);
-                    item->CommandCondition = Helpers::FromCStrOrNull(nativeBreakpoint.commandCondition);
-                    payload->Data->Add(item);
-                }
+                int end = Math::Min(snapshot->Count, pageOffset + pageLimit);
+                for (int i = Math::Min(pageOffset, snapshot->Count); i < end; i++)
+                    payload->Data->Add(snapshot[i]);
             }
 
             payload->Page->HasMore = pageOffset + payload->Data->Count < payload->Page->Total;
@@ -1905,6 +1979,53 @@ namespace x64dbgMCP {
 
         [McpServerTool]
         [Description(
+            "Precise breakpoint reads and mutations. Actions:\n"
+            "  set             : { addr, breakCondition?, logText?, logCondition? } -> software breakpoint\n"
+            "  set_hardware    : { addr, type?, size?, breakCondition?, logText?, logCondition? } -> hardware breakpoint\n"
+            "  get             : { addr, kind? } -> software or hardware breakpoint\n"
+            "  disable         : { addr, kind? } -> disabled software or hardware breakpoint\n"
+            "  delete          : { addr, kind? } -> delete software or hardware breakpoint\n"
+            "For get/disable/delete, kind is needed only when normal and hardware breakpoints coexist at addr.\n"
+            "Use breakCondition=\"0\" with logText for a log-only breakpoint that does not pause."
+        )]
+        static BreakpointResult^ Breakpoints(
+            [Description("Action: \"set\" | \"set_hardware\" | \"get\" | \"disable\" | \"delete\"")]
+            String^ action,
+            [Description("Address or x64dbg expression (required for every action)")]
+            [DefaultValue("")]
+            String^ addr,
+            [Description("Breakpoint kind for get/disable/delete: \"normal\" | \"hardware\"; omit when exactly one kind exists at addr")]
+            [DefaultValue("")]
+            String^ kind,
+            [Description("Hardware type for set_hardware: \"access\" | \"write\" | \"execute\"; defaults to execute")]
+            [DefaultValue("execute")]
+            String^ type,
+            [Description("Hardware size for set_hardware: 1, 2, 4, or 8 (x64 only); defaults to 1 and requires matching address alignment")]
+            [DefaultValue(1)]
+            int size,
+            [Description("Breakpoint-hit-time pause condition for set/set_hardware; use \"0\" for log-only behavior")]
+            [DefaultValue("")]
+            String^ breakCondition,
+            [Description("Breakpoint-hit-time x64dbg format text for set/set_hardware (e.g. \"cip: {cip}\")")]
+            [DefaultValue("")]
+            String^ logText,
+            [Description("Breakpoint-hit-time condition controlling logText for set/set_hardware")]
+            [DefaultValue("")]
+            String^ logCondition)
+        {
+            return BreakpointAction(
+                action,
+                addr,
+                kind,
+                type,
+                size,
+                breakCondition,
+                logText,
+                logCondition);
+        }
+
+        [McpServerTool]
+        [Description(
             "Memory operations. Actions:\n"
             "  read : { addr, size, compress? } -> base64-encoded bytes; compress=true uses an lz4 block"
         )]
@@ -2021,6 +2142,405 @@ namespace x64dbgMCP {
         }
 
     private:
+        static BreakpointResult^ BreakpointAction(
+            String^ action,
+            String^ addr,
+            String^ kind,
+            String^ hardwareType,
+            int hardwareSize,
+            String^ breakCondition,
+            String^ logText,
+            String^ logCondition)
+        {
+            bool isSet = action == "set";
+            bool isSetHardware = action == "set_hardware";
+            bool isGet = action == "get";
+            bool isDisable = action == "disable";
+            bool isDelete = action == "delete";
+            if (!isGet && !isSet && !isSetHardware && !isDisable && !isDelete)
+            {
+                return BreakpointError(
+                    "invalid_argument",
+                    "unknown action: " + (action ? action : "<null>")
+                    + "; expected get|set|set_hardware|disable|delete");
+            }
+
+            if (!DbgIsDebugging())
+                return BreakpointError("not_attached", "no active debug session");
+
+            if (String::IsNullOrEmpty(addr))
+                return BreakpointError("invalid_argument", "addr is required");
+
+            duint address = 0;
+            if (!Helpers::ResolveExpression(addr, address))
+                return BreakpointError("not_found", "could not resolve address: " + addr);
+
+            if (isSet || isSetHardware)
+            {
+                String^ invalidText = ValidateBreakpointText("breakCondition", breakCondition, MAX_CONDITIONAL_EXPR_SIZE);
+                if (invalidText != nullptr) return BreakpointError("invalid_argument", invalidText);
+                invalidText = ValidateBreakpointText("logText", logText, MAX_CONDITIONAL_TEXT_SIZE);
+                if (invalidText != nullptr) return BreakpointError("invalid_argument", invalidText);
+                invalidText = ValidateBreakpointText("logCondition", logCondition, MAX_CONDITIONAL_EXPR_SIZE);
+                if (invalidText != nullptr) return BreakpointError("invalid_argument", invalidText);
+            }
+
+            if (isSet)
+                return SetSoftwareBreakpoint(address, breakCondition, logText, logCondition);
+            if (isSetHardware)
+                return SetHardwareBreakpoint(
+                    address,
+                    String::IsNullOrEmpty(hardwareType) ? "execute" : hardwareType,
+                    hardwareSize,
+                    breakCondition,
+                    logText,
+                    logCondition);
+
+            BreakpointEntry^ existing = nullptr;
+            auto selectionError = SelectBreakpoint(address, kind, existing);
+            if (selectionError != nullptr)
+                return selectionError;
+            if (isGet)
+            {
+                auto result = gcnew BreakpointResult();
+                result->Success = true;
+                result->Data = existing;
+                return result;
+            }
+
+            BPXTYPE selectedType = existing->Type == "hardware" ? bp_hardware : bp_normal;
+            if (isDisable)
+                return DisableBreakpoint(address, selectedType, existing);
+            return DeleteBreakpoint(address, selectedType);
+        }
+
+        static BreakpointResult^ SelectBreakpoint(
+            duint address,
+            String^ kind,
+            [Out] BreakpointEntry^% selected)
+        {
+            selected = nullptr;
+            bool selectNormal = String::IsNullOrEmpty(kind) || kind == "normal";
+            bool selectHardware = String::IsNullOrEmpty(kind) || kind == "hardware";
+            if (!selectNormal && !selectHardware)
+                return BreakpointError("invalid_argument", "kind must be one of normal|hardware");
+
+            BreakpointEntry^ normal = nullptr;
+            BreakpointEntry^ hardware = nullptr;
+            BreakpointSnapshots::FindNormalAndHardware(address, normal, hardware);
+            if (!selectNormal) normal = nullptr;
+            if (!selectHardware) hardware = nullptr;
+            if (String::IsNullOrEmpty(kind) && normal != nullptr && hardware != nullptr)
+            {
+                return BreakpointError(
+                    "invalid_argument",
+                    "both normal and hardware breakpoints exist at " + Helpers::FormatAddress(address)
+                    + "; specify kind=normal or kind=hardware");
+            }
+
+            selected = normal != nullptr ? normal : hardware;
+            if (selected == nullptr)
+            {
+                String^ requested = String::IsNullOrEmpty(kind) ? "normal or hardware" : kind;
+                return BreakpointError(
+                    "not_found",
+                    requested + " breakpoint not found at " + Helpers::FormatAddress(address));
+            }
+            return nullptr;
+        }
+
+        static BreakpointResult^ SetSoftwareBreakpoint(
+            duint address,
+            String^ breakCondition,
+            String^ logText,
+            String^ logCondition)
+        {
+            bool existed = BreakpointSnapshots::Find(bp_normal, address) != nullptr;
+            if (!Script::Debug::SetBreakpoint(address))
+                return BreakpointError("x64dbg_failed", "failed to set software breakpoint at " + Helpers::FormatAddress(address));
+
+            String^ optionError;
+            if (!ApplyBreakpointOptions(false, address, breakCondition, logText, logCondition, optionError))
+            {
+                bool rolledBack = existed || Script::Debug::DeleteBreakpoint(address);
+                return BreakpointError(
+                    "x64dbg_failed",
+                    optionError + (rolledBack ? "" : "; rollback failed"));
+            }
+
+            auto entry = BreakpointSnapshots::Find(bp_normal, address);
+            String^ mismatch = ValidateBreakpointReadback(
+                entry,
+                nullptr,
+                nullptr,
+                breakCondition,
+                logText,
+                logCondition);
+            if (mismatch != nullptr)
+            {
+                bool rolledBack = existed || Script::Debug::DeleteBreakpoint(address);
+                return BreakpointError(
+                    "x64dbg_failed",
+                    mismatch + (rolledBack ? "" : "; rollback failed"));
+            }
+
+            auto result = gcnew BreakpointResult();
+            result->Success = true;
+            result->Data = entry;
+            return result;
+        }
+
+        static BreakpointResult^ SetHardwareBreakpoint(
+            duint address,
+            String^ type,
+            int size,
+            String^ breakCondition,
+            String^ logText,
+            String^ logCondition)
+        {
+            String^ commandType;
+            if (type == "access") commandType = "r";
+            else if (type == "write") commandType = "w";
+            else if (type == "execute") commandType = "x";
+            else
+                return BreakpointError(
+                    "invalid_argument",
+                    "type must be one of access|write|execute");
+
+            if (size != 1 && size != 2 && size != 4 && size != 8)
+                return BreakpointError("invalid_argument", "size must be one of 1|2|4|8");
+#ifndef _WIN64
+            if (size == 8)
+                return BreakpointError("invalid_argument", "size=8 is supported only by x64dbg");
+#endif
+            if (address % (duint)size != 0)
+            {
+                return BreakpointError(
+                    "invalid_argument",
+                    "address " + Helpers::FormatAddress(address)
+                    + " is not aligned to hardware size " + Convert::ToString(size, CultureInfo::InvariantCulture));
+            }
+
+            bool existed = BreakpointSnapshots::Find(bp_hardware, address) != nullptr;
+            String^ command = "SetHardwareBreakpoint "
+                + Helpers::FormatAddress(address)
+                + ", " + commandType
+                + ", " + Convert::ToString(size, CultureInfo::InvariantCulture);
+            if (!ExecuteDirectUtf8(command))
+                return BreakpointError("x64dbg_failed", "failed to set hardware breakpoint at " + Helpers::FormatAddress(address));
+
+            String^ optionError;
+            if (!ApplyBreakpointOptions(true, address, breakCondition, logText, logCondition, optionError))
+            {
+                bool rolledBack = existed || Script::Debug::DeleteHardwareBreakpoint(address);
+                return BreakpointError(
+                    "x64dbg_failed",
+                    optionError + (rolledBack ? "" : "; rollback failed"));
+            }
+
+            auto entry = BreakpointSnapshots::Find(bp_hardware, address);
+            String^ mismatch = ValidateBreakpointReadback(
+                entry,
+                type,
+                HardwareSizeName(size),
+                breakCondition,
+                logText,
+                logCondition);
+            if (mismatch != nullptr)
+            {
+                bool rolledBack = existed || Script::Debug::DeleteHardwareBreakpoint(address);
+                return BreakpointError(
+                    "x64dbg_failed",
+                    mismatch + (rolledBack ? "" : "; rollback failed"));
+            }
+
+            auto result = gcnew BreakpointResult();
+            result->Success = true;
+            result->Data = entry;
+            return result;
+        }
+
+        static BreakpointResult^ DisableBreakpoint(
+            duint address,
+            BPXTYPE type,
+            BreakpointEntry^ existing)
+        {
+            String^ kind = type == bp_hardware ? "hardware" : "normal";
+
+            bool disabled = true;
+            if (existing->Enabled)
+            {
+                disabled = type == bp_hardware
+                    ? ExecuteDirectUtf8("DisableHardwareBreakpoint " + Helpers::FormatAddress(address))
+                    : Script::Debug::DisableBreakpoint(address);
+            }
+            if (!disabled)
+                return BreakpointError("x64dbg_failed", "failed to disable " + kind + " breakpoint at " + Helpers::FormatAddress(address));
+
+            auto entry = BreakpointSnapshots::Find(type, address);
+            if (entry == nullptr || entry->Enabled)
+                return BreakpointError("x64dbg_failed", kind + " breakpoint disable readback mismatch at " + Helpers::FormatAddress(address));
+
+            auto result = gcnew BreakpointResult();
+            result->Success = true;
+            result->Data = entry;
+            return result;
+        }
+
+        static BreakpointResult^ DeleteBreakpoint(duint address, BPXTYPE type)
+        {
+            String^ kind = type == bp_hardware ? "hardware" : "software";
+            if (BreakpointSnapshots::Find(type, address) == nullptr)
+                return BreakpointError("not_found", kind + " breakpoint not found at " + Helpers::FormatAddress(address));
+
+            bool deleted = type == bp_hardware
+                ? Script::Debug::DeleteHardwareBreakpoint(address)
+                : Script::Debug::DeleteBreakpoint(address);
+            if (!deleted)
+                return BreakpointError("x64dbg_failed", "failed to delete " + kind + " breakpoint at " + Helpers::FormatAddress(address));
+            if (BreakpointSnapshots::Find(type, address) != nullptr)
+                return BreakpointError("x64dbg_failed", kind + " breakpoint delete readback mismatch at " + Helpers::FormatAddress(address));
+
+            auto result = gcnew BreakpointResult();
+            result->Success = true;
+            return result;
+        }
+
+        static bool ApplyBreakpointOptions(
+            bool hardware,
+            duint address,
+            String^ breakCondition,
+            String^ logText,
+            String^ logCondition,
+            [Out] String^% error)
+        {
+            error = nullptr;
+            BP_REF reference = {};
+            BPXTYPE type = hardware ? bp_hardware : bp_normal;
+            if (!DbgFunctions()->BpRefVa(&reference, type, address)
+                || !DbgFunctions()->BpRefExists(&reference))
+            {
+                error = "failed to create breakpoint SDK reference at " + Helpers::FormatAddress(address);
+                return false;
+            }
+
+            if (!String::IsNullOrEmpty(breakCondition)
+                && !SetBreakpointTextField(reference, bpf_breakcondition, breakCondition))
+            {
+                error = "BpSetFieldText failed for breakCondition at " + Helpers::FormatAddress(address);
+                return false;
+            }
+            if (!String::IsNullOrEmpty(logText)
+                && !SetBreakpointTextField(reference, bpf_logtext, logText))
+            {
+                error = "BpSetFieldText failed for logText at " + Helpers::FormatAddress(address);
+                return false;
+            }
+            if (!String::IsNullOrEmpty(logCondition)
+                && !SetBreakpointTextField(reference, bpf_logcondition, logCondition))
+            {
+                error = "BpSetFieldText failed for logCondition at " + Helpers::FormatAddress(address);
+                return false;
+            }
+
+            if (!String::IsNullOrEmpty(logText)
+                && !DbgFunctions()->BpSetFieldNumber(&reference, bpf_silent, 1))
+            {
+                error = "BpSetFieldNumber failed for silent at " + Helpers::FormatAddress(address);
+                return false;
+            }
+
+            GuiUpdateAllViews();
+            return true;
+        }
+
+        static bool SetBreakpointTextField(BP_REF reference, BP_FIELD field, String^ value)
+        {
+            IntPtr utf8Value = Marshal::StringToCoTaskMemUTF8(value);
+            bool result = DbgFunctions()->BpSetFieldText(
+                &reference,
+                field,
+                static_cast<const char*>(utf8Value.ToPointer()));
+            Marshal::FreeCoTaskMem(utf8Value);
+            return result;
+        }
+
+        static String^ ValidateBreakpointReadback(
+            BreakpointEntry^ entry,
+            String^ expectedHardwareType,
+            String^ expectedHardwareSize,
+            String^ breakCondition,
+            String^ logText,
+            String^ logCondition)
+        {
+            if (entry == nullptr)
+                return "breakpoint was absent during post-mutation readback";
+            if (!entry->Enabled)
+                return "breakpoint was not enabled during post-mutation readback";
+            if (expectedHardwareType != nullptr
+                && !String::Equals(entry->Subtype, expectedHardwareType, StringComparison::Ordinal))
+                return "hardware breakpoint type readback mismatch";
+            if (expectedHardwareSize != nullptr
+                && !String::Equals(entry->HardwareSize, expectedHardwareSize, StringComparison::Ordinal))
+                return "hardware breakpoint size readback mismatch";
+            if (!String::IsNullOrEmpty(breakCondition)
+                && !String::Equals(entry->BreakCondition, breakCondition, StringComparison::Ordinal))
+                return "breakCondition readback mismatch";
+            if (!String::IsNullOrEmpty(logText)
+                && !String::Equals(entry->LogText, logText, StringComparison::Ordinal))
+                return "logText readback mismatch";
+            if (!String::IsNullOrEmpty(logText) && !entry->Silent)
+                return "non-empty logText did not enable silent breakpoint mode";
+            if (!String::IsNullOrEmpty(logCondition)
+                && !String::Equals(entry->LogCondition, logCondition, StringComparison::Ordinal))
+                return "logCondition readback mismatch";
+            return nullptr;
+        }
+
+        static String^ ValidateBreakpointText(String^ name, String^ value, int storageSize)
+        {
+            if (String::IsNullOrEmpty(value)) return nullptr;
+            if (value->IndexOf(L'\0') >= 0)
+                return name + " cannot contain a NUL character";
+
+            int byteCount = Encoding::UTF8->GetByteCount(value);
+            if (byteCount >= storageSize)
+            {
+                return name + " must be at most "
+                    + Convert::ToString(storageSize - 1, CultureInfo::InvariantCulture)
+                    + " UTF-8 bytes";
+            }
+            return nullptr;
+        }
+
+        static String^ HardwareSizeName(int size)
+        {
+            switch (size)
+            {
+            case 1: return "byte";
+            case 2: return "word";
+            case 4: return "dword";
+            case 8: return "qword";
+            default: return nullptr;
+            }
+        }
+
+        static bool ExecuteDirectUtf8(String^ command)
+        {
+            IntPtr utf8Command = Marshal::StringToCoTaskMemUTF8(command);
+            bool result = DbgCmdExecDirect(static_cast<const char*>(utf8Command.ToPointer()));
+            Marshal::FreeCoTaskMem(utf8Command);
+            return result;
+        }
+
+        static BreakpointResult^ BreakpointError(String^ code, String^ message)
+        {
+            auto result = gcnew BreakpointResult();
+            result->Success = false;
+            result->Error = Helpers::MakeError(code, message);
+            return result;
+        }
+
         static MemoryReadResult^ MemoryRead(String^ addr, int size, bool compress)
         {
             auto r = gcnew MemoryReadResult();

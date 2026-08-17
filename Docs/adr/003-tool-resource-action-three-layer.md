@@ -64,10 +64,19 @@ For **fine-grained per-item CRUD families** and **debug control clusters** that 
 - `labels{get, set, delete, set_batch, delete_batch}`; bulk reads use `x64dbg://labels`
 - `comments{...}`, `bookmarks{...}`, `functions{...}`, `xrefs{...}`
 - `debug_control{run, pause, stop, StepInto, StepOver, StepOut, init, run_command}`
-- `breakpoints{get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}`; bulk reads use `x64dbg://breakpoints`
+- `breakpoints{get, set, delete, disable, set_hardware, set_batch, delete_batch}`; bulk reads use `x64dbg://breakpoints`
 - `registers{get, set, dump}`, `memory{read, write, alloc, free}`, `threads{get, set_name, set_active, suspend, resume, create_at}`, `logging{clear, put}`
 
 Benefits: tool count compression, symmetric ops live next to each other, batch variants come for free in the same dispatch.
+
+For breakpoints, `get`, `disable`, and `delete` are type-neutral public actions over the
+normal/hardware breakpoint families. They accept an optional `kind` discriminator only for the
+valid x64dbg state where both types coexist at the same address: omitting `kind` auto-selects the
+sole match, while two matches fail before mutation and require `kind="normal"` or
+`kind="hardware"`. `set` and `set_hardware` remain separate because hardware creation has distinct
+trigger-type, size, alignment, and debug-register-slot constraints. This 2026-08-17 refinement
+supersedes the earlier reserved `delete_hardware` action rather than exposing two deletion names
+for one conceptual operation.
 
 ### Estimated surface
 

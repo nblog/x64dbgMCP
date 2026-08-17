@@ -703,11 +703,82 @@ Returns a `DebugControlResult` envelope with the echoed `action` and post-dispat
 
 Errors: `invalid_argument` (unknown action or missing action-specific parameter), `not_attached` (session action without a debuggee), `x64dbg_failed` (x64dbg rejected the dispatched command).
 
-### `breakpoints{get, set, delete, disable, set_hardware, delete_hardware, set_batch, delete_batch}` 🟡
+### `breakpoints{get, set, set_hardware, disable, delete}` 🟢
 
 Bulk enumeration and the shared `BreakpointEntry` wire vocabulary are defined by
-`x64dbg://breakpoints`. The Tool supplies precise per-item reads and mutations; it must not add
-an equivalent unfiltered bulk-list action.
+`x64dbg://breakpoints`. The Tool supplies precise per-item reads and mutations and must not add an
+equivalent unfiltered bulk-list action. `set_batch` and `delete_batch` remain reserved actions from
+ADR-003; they are not exposed by the current Tool schema until their contracts are defined.
+
+| Action | Params | Returns |
+|---|---|---|
+| `get` | `{ addr: string, kind?: "normal" \| "hardware" }` | Matching software or hardware `BreakpointEntry` |
+| `set` | `{ addr: string, breakCondition?: string, logText?: string, logCondition?: string }` | Post-mutation software `BreakpointEntry` |
+| `set_hardware` | `{ addr: string, type?: "access" \| "write" \| "execute", size?: 1 \| 2 \| 4 \| 8, breakCondition?: string, logText?: string, logCondition?: string }` | Post-mutation hardware `BreakpointEntry` |
+| `disable` | `{ addr: string, kind?: "normal" \| "hardware" }` | Matching post-mutation `BreakpointEntry` with `enabled:false` |
+| `delete` | `{ addr: string, kind?: "normal" \| "hardware" }` | Success-only envelope after deleting the matching breakpoint |
+
+`addr` is resolved through the x64dbg expression engine and every native operation uses the
+resulting canonical address. For `get`, `disable`, and `delete`, `kind` reuses the
+`BreakpointEntry.type` values `"normal"` and `"hardware"`. When omitted, the Tool scans both
+families: zero matches returns `not_found`, one match is selected automatically, and two matches
+returns `invalid_argument` before mutation because x64dbg permits software and hardware
+breakpoints to coexist at one address. The caller must then provide `kind`; the Tool never picks
+by enumeration order or silently mutates both breakpoints.
+
+`set_hardware.type` defaults to `"execute"`, matching x64dbg's official command and Script API.
+`"access"` means read/write and is intentionally opt-in because its broader hit surface can
+generate substantially more debug events and log output. `size` defaults to `1`; valid values are
+`1`, `2`, and `4` on x86, plus `8` on x64. The address must be aligned to the selected size. The
+four debug-register slots remain an upstream hardware limit.
+
+`breakCondition`, `logText`, and `logCondition` are stored for breakpoint-hit time rather than
+pre-evaluated by the Tool. Each non-empty value is limited to 255 UTF-8 bytes, matching the
+`BRIDGEBP` readback fields. The Script API has no named setter for these fields, but the vendored
+Plugin SDK exposes the generic `BP_REF` + `BpSetFieldText` interface with
+`bpf_breakcondition`, `bpf_logtext`, and `bpf_logcondition`. The Tool uses that interface with
+UTF-8 values, and explicitly sets `bpf_silent` when `logText` is non-empty. Consequently log text
+does not pass through x64dbg's command parser: commas, semicolons, significant spaces, embedded
+quotes, backslashes, and hit-time formatting such as `{rcx}` are stored verbatim. The only raw
+commands in this implementation are `SetHardwareBreakpoint <address>,<type>,<size>`, because the
+Script API cannot express hardware size, and `DisableHardwareBreakpoint <address>`, because the
+Script API has no hardware-disable wrapper. After every mutation, the Tool rereads
+`DbgGetBpList` and verifies the exact breakpoint type, canonical address, requested condition/log
+values, and action-specific state before returning success.
+
+A log-only breakpoint is represented without another action kind:
+
+```json
+{
+  "action": "set_hardware",
+  "addr": "target expression",
+  "type": "access",
+  "size": 8,
+  "breakCondition": "0",
+  "logText": "cip: {cip}  address: {$breakpointexceptionaddress}"
+}
+```
+
+This is the supported x64dbg form for “record but do not pause”. A non-empty `logText` also makes
+the breakpoint silent, suppressing the standard hit message while retaining the custom log.
+`fastResume` must not be enabled for this use case because a false break condition with fast
+resume skips logging, commands, plugin callbacks, and GUI work. Invalid hit-time conditions follow
+x64dbg semantics and evaluate as triggered, so `"0"` is clearer and safer than an incidental
+always-false register comparison such as `cip == 0`.
+
+```cpp
+public ref class BreakpointResult : McpResult
+{
+public:
+    property BreakpointEntry^ Data;  // omitted for delete
+};
+```
+
+Errors: `not_attached`; `invalid_argument` (unknown action, missing `addr`, invalid `kind`, both
+normal and hardware breakpoints present without `kind`, invalid hardware type/size/alignment, x86
+size 8, or condition/log value too long); `not_found` (unresolvable `addr` or requested breakpoint
+absent); `x64dbg_failed` (native/command mutation failure, occupied hardware slots, or
+post-readback mismatch).
 
 ### `registers{get, set, dump}` 🟢
 
