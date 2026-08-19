@@ -61,8 +61,8 @@ Loaded only when `enableDebugging=true`, to avoid bloating the default tool sche
 - `Registers { get, set, dump }` — Names are resolved by x64dbg, covering any register/flag
 - `Assemble(addr, instruction, fillNops?)`
 - `Memory { read(addr, size, compress?), write, alloc, free }` — `read` returns base64; `compress=true` uses lz4
-- `Threads { get, set_name, set_active, suspend, resume, create_at }`
-- `Breakpoints { set, get, delete, disable, set_hardware }`
+- `Threads { suspend, resume, create_at, set_name, set_active }`
+- `Breakpoints { set, delete, disable, set_hardware }`
 
 ---
 
