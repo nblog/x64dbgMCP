@@ -58,13 +58,13 @@ Analysis and annotation (always registered):
 Loaded only when `enableDebugging=true`, to avoid bloating the default tool schema:
 
 - `Logging { clear, put }` — Clear the log window or append a line
-- `DebugControl { init, attach, run, stop, pause, StepInto, StepOver, StepOut, run_command }`
+- `DebugControl { run_command, init, attach, run, stop, pause, StepInto, StepOver, StepOut }`
 - `Registers { get, set, dump }` — Names are resolved by x64dbg, covering any register/flag
 - `Assemble(addr, instruction, fillNops?)`
 - `Memory { read(addr, size, compress?), write, alloc }` — `read` returns base64; `compress=true` uses lz4
 - `Threads { suspend, resume, create_at, set_name, set_active }`
 - `Breakpoints { set, delete, disable, set_hardware }`
-- `DebugGUI { snapshot, focus, get, set }` — Operate the x64dbg main window as a visual source, focus the CPU pane, and read or set GUI selections
+- `DebugGUI { snapshot, focus, set, get }` — Operate the x64dbg main window as a visual source, focus the CPU pane, and read or set GUI selections
 
 ---
 

@@ -58,13 +58,13 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 仅在 `enableDebugging=true` 时加载，避免默认 tool schema 膨胀：
 
 - `Logging { clear, put }` — 清空日志窗口或追加一行
-- `DebugControl { init, attach, run, stop, pause, StepInto, StepOver, StepOut, run_command }`
+- `DebugControl { run_command, init, attach, run, stop, pause, StepInto, StepOver, StepOut }`
 - `Registers { get, set, dump }` — 名称由 x64dbg 解析，覆盖任意寄存器/标志
 - `Assemble(addr, instruction, fillNops?)`
 - `Memory { read(addr, size, compress?), write, alloc }` — `read` 以 base64 返回；`compress=true` 使用 lz4
 - `Threads { suspend, resume, create_at, set_name, set_active }`
 - `Breakpoints { set, delete, disable, set_hardware }`
-- `DebugGUI { snapshot, focus, get, set }` — 操作 x64dbg 主窗口作为可视化源，聚焦 CPU 子窗口，并读取或设置 GUI 选区
+- `DebugGUI { snapshot, focus, set, get }` — 操作 x64dbg 主窗口作为可视化源，聚焦 CPU 子窗口，并读取或设置 GUI 选区
 
 ---
 
