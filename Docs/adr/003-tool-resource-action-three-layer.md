@@ -39,7 +39,7 @@ For **read-only data that is most useful as a bulk snapshot or collection** and 
 - Memory map
 - Threads list
 - Symbols, functions, labels, comments, bookmarks, and breakpoints lists
-- Project/session/process info
+- Project/session/debuggee info and attach-process candidates
 - x64dbg Log view snapshot
 
 Resources are not required to be immutable or permanently cacheable: their contents may change between reads as the debug session changes. The invariant is that reading a Resource does not alter debugger-domain state. Benefits: URI-addressable, compact for bulk retrieval, absent from the AI tool-definition budget, and naturally navigable via `_links`.
@@ -87,7 +87,7 @@ attach command, then restores the previous setting.
 
 ### Estimated surface
 
-The current target catalog is 19 Resources + 6 rich-param Tools (including the gated `assemble`) + 12 action-mega Tools, for 18 Tools in total. Only Tool definitions consume the AI tool-schema budget. With debugger-domain Tools gated off, an agent loads 11 Tool definitions instead of the full 18 (PoC: 50+).
+The current target catalog is 20 Resources + 6 rich-param Tools (including the gated `assemble`) + 12 action-mega Tools, for 18 Tools in total. Only Tool definitions consume the AI tool-schema budget. With debugger-domain Tools gated off, an agent loads 11 Tool definitions instead of the full 18 (PoC: 50+).
 
 `memory{action:"read"}` preserves the earlier `memory_read(addr, size, compress?)` parameter and result design. The standalone Tool was implemented before the symmetric memory family was consolidated; the 2026-08-14 amendment supersedes that original Layer B classification so read/write/alloc/free share one MCP-visible family without duplicating the read operation.
 

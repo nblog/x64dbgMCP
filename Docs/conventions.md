@@ -118,7 +118,8 @@ Resources are different: they return raw text or `ResourceContents` per MCP spec
 Navigation roots (carry `_links`):
 
 - `x64dbg://session`
-- `x64dbg://process`
+- `x64dbg://session/debuggee`
+- `x64dbg://attach/processes`
 - `x64dbg://modules` and `x64dbg://modules/{name}`
 - `x64dbg://memory/maps`
 - `x64dbg://windows`

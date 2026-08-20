@@ -78,7 +78,7 @@ public:
     property String^ X64dbgDirectory;   // BridgeUserDirectory()
     property bool IsDebugging;
     property bool IsRunning;
-    property Dictionary<String^, LinkRef^>^ Links;  // → process, modules, memory/maps, threads, windows, handles, tcpconnections, breakpoints, logging
+    property Dictionary<String^, LinkRef^>^ Links;  // → debuggee, attach/processes, modules, memory/maps, threads, windows, handles, tcpconnections, breakpoints, logging
 };
 ```
 
@@ -95,12 +95,12 @@ the log being observed.
 Messages that x64dbg still holds in its private LogView buffer while the Log tab is hidden
 are outside this rendered snapshot until upstream displays the tab and flushes that buffer.
 
-### `x64dbg://process` 🟢
+### `x64dbg://session/debuggee` 🟢
 
-Information about the currently debugged process. Empty/null fields when not debugging.
+Information about the current session's debuggee. Empty/null fields when not debugging.
 
 ```cpp
-public ref class ProcessInfo
+public ref class DebuggeeInfo
 {
 public:
     // property String^ Handle;          // native process handle (hex)
@@ -117,6 +117,53 @@ public:
     property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory/maps, threads, windows, handles, tcpconnections, breakpoints
 };
 ```
+
+This Resource replaces the former `x64dbg://process` URI. The old URI is not retained as an
+alias because two equivalent Resources would violate ADR-003's no-duplicate-operation rule.
+
+### `x64dbg://attach/processes{?offset,limit}` 🟢
+
+Paged snapshot of the processes offered by x64dbg's Attach dialog. It is available without an
+active debug session. `offset` defaults to `0`; `limit` defaults to `100` and is clamped to
+`1–100`. Pagination is applied to one `DbgFunctions()->GetProcessList` snapshot; process creation
+and exit can change subsequent pages.
+
+The native list is already filtered by x64dbg: it excludes the debugger itself, PID 0/4,
+processes that cannot be opened for query and memory read, and processes whose architecture does
+not match the current x32dbg/x64dbg instance. Consequently the collection represents attach
+candidates, not every process in Windows and not a guarantee that a later attach will succeed.
+
+```cpp
+public ref class AttachProcessInfo
+{
+public:
+    property int ProcessId;
+    property String^ Name;                  // file name without extension, matching AttachDialog
+    property String^ Title;                 // main-window title or class name; empty when unavailable
+    property String^ Path;                  // full executable path
+    property String^ CommandLineArguments;  // x64dbg's best-effort parsed arguments
+};
+
+public ref class AttachProcessesPayload
+{
+public:
+    property List<AttachProcessInfo^>^ Data;
+    property PageInfo^ Page;
+    property Dictionary<String^, LinkRef^>^ Links;  // self/next/prev/session
+};
+```
+
+`GetProcessList` allocates its contiguous `DBGPROCESSINFO` array with `BridgeAlloc`; the Resource
+materializes the managed page and releases that allocation exactly once with `BridgeFree`. The
+SDK returns `false` both when enumeration fails and when it finds no candidates, so both states
+are exposed as an empty page.
+
+`CommandLineArguments` preserves `DBGPROCESSINFO::szExeArgs`, the same value rendered by
+x64dbg's Attach dialog. Upstream normally attempts to remove the executable from the full command
+line, but the matching is best-effort and case-sensitive. The value can therefore contain an
+`ARG_GET_ERROR` diagnostic or a partial executable prefix when the image path/name does not match
+the command line exactly. The Resource does not independently re-read or normalize every
+candidate's remote command line.
 
 ### `x64dbg://modules` 🟢
 
@@ -233,7 +280,7 @@ public ref class MemoryMapsPayload
 {
 public:
     property List<MemoryRegion^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
 };
 ```
 
@@ -269,7 +316,7 @@ public ref class ThreadsPayload
 {
 public:
     property List<ThreadInfo^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
 };
 ```
 
@@ -327,14 +374,14 @@ public ref class BreakpointsPayload
 public:
     property List<BreakpointEntry^>^ Data;
     property PageInfo^ Page;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process, next?, prev?
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee, next?, prev?
 };
 ```
 
 Empty optional native text fields are omitted from the JSON payload. `Address`,
 `ExceptionCode`, `HardwareSize`, and `HardwareSlot` are mutually constrained by `Type`; the
 resource never exposes the DLL breakpoint's internal module hash as an address. As a navigation
-root, the Resource links back to session/process and supplies page-local self/next/prev links.
+root, the Resource links back to session/debuggee and supplies page-local self/next/prev links.
 
 ### `x64dbg://windows` 🟢
 
@@ -369,7 +416,7 @@ public ref class WindowsPayload
 {
 public:
     property List<WindowInfo^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
 };
 ```
 
@@ -394,7 +441,7 @@ public ref class HandlesPayload
 {
 public:
     property List<HandleInfo^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
 };
 ```
 
@@ -421,7 +468,7 @@ public ref class TcpConnectionsPayload
 {
 public:
     property List<TcpConnectionInfo^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, process
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
 };
 ```
 
@@ -700,7 +747,7 @@ These tools are registered only when `McpServerHost::Start(..., enableDebugging:
 | `init` | `{ exePath: string, cmdLine?: string, curFolder?: string }` | Loads target executable |
 | `run_command` | `{ command: string, wait?: bool }` | Raw x64dbg command; `wait` uses `DbgCmdExecDirect` |
 
-`attach` dispatches x64dbg's `attach .<pid>` command, where the leading dot preserves decimal PID semantics. It uses direct command execution so a `detach2attach=true` call can temporarily force x64dbg's `Engine/DetachOnAttach` behavior for that dispatch and restore the prior setting before returning. The option is call-local and does not persistently change the user's debugger configuration. A successful return means the attach command handler accepted the target and started the attach debug loop; it does not wait for the system breakpoint. Clients should confirm the resulting PID through `x64dbg://process`.
+`attach` dispatches x64dbg's `attach .<pid>` command, where the leading dot preserves decimal PID semantics. It uses direct command execution so a `detach2attach=true` call can temporarily force x64dbg's `Engine/DetachOnAttach` behavior for that dispatch and restore the prior setting before returning. The option is call-local and does not persistently change the user's debugger configuration. A successful return means the attach command handler accepted the target and started the attach debug loop; it does not wait for the system breakpoint. Clients should confirm the resulting PID through `x64dbg://session/debuggee`.
 
 Returns a `DebugControlResult` envelope with the echoed `action` and post-dispatch `isDebugging` / `isRunning` snapshot. `commandOutput` is reserved in the current result class but is not populated by the implementation; `run_command` reports command acceptance, not captured console output.
 
@@ -1028,4 +1075,4 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | `LogPuts` | `logging{action:"put"}` | `x64dbg://logging` supplies the read snapshot; `logging{action:"clear"}` adds the matching clear action |
 | `Gui*`, `Script*`, `*Watch*` | (excluded) | See §7 |
 
-Target surface: **19 Resources + 6 rich-param Tools (including gated `assemble`) + 12 action-mega Tools = 37 entries**. Only the 18 Tool definitions consume the AI tool-schema budget; with the debugger-domain catalog disabled, the default Tool catalog is 11 definitions (PoC was 50+).
+Target surface: **20 Resources + 6 rich-param Tools (including gated `assemble`) + 12 action-mega Tools = 38 entries**. Only the 18 Tool definitions consume the AI tool-schema budget; with the debugger-domain catalog disabled, the default Tool catalog is 11 definitions (PoC was 50+).

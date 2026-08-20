@@ -652,7 +652,7 @@ namespace x64dbgMCP {
         property Dictionary<String^, LinkRef^>^ Links;
     };
 
-    public ref class ProcessInfo
+    public ref class DebuggeeInfo
     {
     public:
         // [JsonPropertyName("handle")]         property String^ Handle;
@@ -666,6 +666,27 @@ namespace x64dbgMCP {
         //[JsonPropertyName("kUserSharedData")]   property String^ KUserSharedData;
         [JsonPropertyName("path")]              property String^ Path;
         [JsonPropertyName("commandLine")]       property String^ CommandLine;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
+    public ref class AttachProcessInfo
+    {
+    public:
+        [JsonPropertyName("processId")]            property int ProcessId;
+        [JsonPropertyName("name")]                 property String^ Name;
+        [JsonPropertyName("title")]                property String^ Title;
+        [JsonPropertyName("path")]                 property String^ Path;
+        [JsonPropertyName("commandLineArguments")] property String^ CommandLineArguments;
+    };
+
+    public ref class AttachProcessesPayload
+    {
+    public:
+        [JsonPropertyName("data")] property List<AttachProcessInfo^>^ Data;
+        [JsonPropertyName("page")] property PageInfo^ Page;
 
         [JsonPropertyName("_links")]
         [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
@@ -967,7 +988,8 @@ namespace x64dbgMCP {
             info->IsRunning = info->IsDebugging && DbgIsRunning();
             info->Links = gcnew Dictionary<String^, LinkRef^>();
             info->Links["self"] = Helpers::UriLink("x64dbg://session");
-            info->Links["process"] = Helpers::UriLink("x64dbg://process");
+            info->Links["attach_processes"] = Helpers::UriLink("x64dbg://attach/processes");
+            info->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
             info->Links["threads"] = Helpers::UriLink("x64dbg://threads");
             info->Links["memory_maps"] = Helpers::UriLink("x64dbg://memory/maps");
             info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
@@ -1006,11 +1028,11 @@ namespace x64dbgMCP {
             return contents;
         }
 
-        [McpServerResource(UriTemplate = "x64dbg://process", Name = "process", MimeType = "application/json")]
-        [Description("Information about the currently debugged process: PID, path, command line, image base, thread info, and system structures.")]
-        static ResourceContents^ Process()
+        [McpServerResource(UriTemplate = "x64dbg://session/debuggee", Name = "debuggee", MimeType = "application/json")]
+        [Description("Information about the current session's debuggee: PID, path, command line, image base, thread info, and system structures.")]
+        static ResourceContents^ Debuggee()
         {
-            auto info = gcnew ProcessInfo();
+            auto info = gcnew DebuggeeInfo();
 			info->Elevated = BridgeIsProcessElevated();
             info->ProcessId = 0;
             info->ThreadId = 0;
@@ -1021,7 +1043,7 @@ namespace x64dbgMCP {
             info->Path = nullptr;
             info->CommandLine = nullptr;
             info->Links = gcnew Dictionary<String^, LinkRef^>();
-            info->Links["self"] = Helpers::UriLink("x64dbg://process");
+            info->Links["self"] = Helpers::UriLink("x64dbg://session/debuggee");
             info->Links["session"] = Helpers::UriLink("x64dbg://session");
 
             if (DbgIsDebugging())
@@ -1115,8 +1137,73 @@ namespace x64dbgMCP {
                 info->Links["breakpoints"] = Helpers::UriLink("x64dbg://breakpoints");
             }
 
-            return MakeJson(info, "x64dbg://process");
+            return MakeJson(info, "x64dbg://session/debuggee");
         }
+
+#pragma warning(push)
+#pragma warning(disable: 4965)
+        [McpServerResource(UriTemplate = "x64dbg://attach/processes{?offset,limit}", Name = "attach-processes", MimeType = "application/json")]
+        [Description("Paged snapshot of the same filtered process candidates shown by x64dbg's Attach dialog.")]
+        static ResourceContents^ AttachProcesses(RequestContext<ReadResourceRequestParams^>^ requestContext)
+        {
+            String^ requestUri = requestContext != nullptr && requestContext->Params != nullptr
+                ? requestContext->Params->Uri
+                : "x64dbg://attach/processes";
+            int pageOffset = Math::Max(0, QueryInt(requestUri, "offset", 0));
+            int pageLimit = Math::Min(Math::Max(1, QueryInt(requestUri, "limit", 100)), 100);
+
+            auto payload = gcnew AttachProcessesPayload();
+            payload->Data = gcnew List<AttachProcessInfo^>();
+            payload->Page = gcnew PageInfo();
+            payload->Page->Offset = pageOffset;
+            payload->Page->Limit = pageLimit;
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+            payload->Links["self"] = Helpers::UriLink(AttachProcessesPageUri(pageOffset, pageLimit));
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+
+            DBGPROCESSINFO* entries = nullptr;
+            int count = 0;
+            if (DbgFunctions()->GetProcessList(&entries, &count))
+            {
+                payload->Page->Total = count;
+                try
+                {
+                    int start = Math::Min(pageOffset, count);
+                    int end = Math::Min(count, start + pageLimit);
+                    for (int i = start; i < end; i++)
+                    {
+                        auto item = gcnew AttachProcessInfo();
+                        item->ProcessId = (int)entries[i].dwProcessId;
+                        item->Path = Helpers::FromCStr(entries[i].szExeFile);
+                        String^ fileName = Path::GetFileName(item->Path);
+                        int firstDot = fileName->IndexOf('.');
+                        // AttachDialog uses QFileInfo::baseName(), which stops at the first dot.
+                        item->Name = firstDot >= 0 ? fileName->Substring(0, firstDot) : fileName;
+                        item->Title = Helpers::FromCStr(entries[i].szExeMainWindowTitle);
+                        item->CommandLineArguments = Helpers::FromCStr(entries[i].szExeArgs);
+                        payload->Data->Add(item);
+                    }
+                }
+                finally
+                {
+                    BridgeFree(entries);
+                }
+            }
+            else if (entries)
+            {
+                BridgeFree(entries);
+            }
+
+            int returnedThrough = Math::Min(pageOffset, payload->Page->Total) + payload->Data->Count;
+            payload->Page->HasMore = returnedThrough < payload->Page->Total;
+            if (payload->Page->HasMore)
+                payload->Links["next"] = Helpers::UriLink(AttachProcessesPageUri(pageOffset + pageLimit, pageLimit));
+            if (pageOffset > 0)
+                payload->Links["prev"] = Helpers::UriLink(AttachProcessesPageUri(Math::Max(0, pageOffset - pageLimit), pageLimit));
+
+            return MakeJson(payload, requestUri);
+        }
+#pragma warning(pop)
 
 #pragma warning(push)
 #pragma warning(disable: 4965)
@@ -1263,7 +1350,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://memory/maps");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -1301,7 +1388,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://threads");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -1356,7 +1443,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink(BreakpointsPageUri(pageOffset, pageLimit));
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -1387,7 +1474,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://windows");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -1431,7 +1518,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://handles");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -1473,7 +1560,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://tcpconnections");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["process"] = Helpers::UriLink("x64dbg://process");
+            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -1531,6 +1618,11 @@ namespace x64dbgMCP {
         static String^ BreakpointsPageUri(int offset, int limit)
         {
             return String::Format("x64dbg://breakpoints?offset={0}&limit={1}", offset, limit);
+        }
+
+        static String^ AttachProcessesPageUri(int offset, int limit)
+        {
+            return String::Format("x64dbg://attach/processes?offset={0}&limit={1}", offset, limit);
         }
 
         static String^ ModulesPageUri(int offset, int limit)

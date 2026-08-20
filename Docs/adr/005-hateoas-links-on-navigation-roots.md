@@ -25,8 +25,9 @@ Putting `_links` on every disassembly entry would inflate response size by ~30% 
 
 ### Carry `_links`
 
-- `x64dbg://session` — points to process/modules/memory/threads/system snapshots/logging
-- `x64dbg://process` — points back to the session and to process-scoped module/memory/thread/system snapshots
+- `x64dbg://session` — points to its debuggee, attach candidates, modules/memory/threads/system snapshots, and logging
+- `x64dbg://session/debuggee` — points back to the session and to debuggee-scoped module/memory/thread/system snapshots
+- `x64dbg://attach/processes` — paged attach-candidate snapshot; points back to the session and to page-local navigation
 - `x64dbg://modules` (top-level) and `x64dbg://modules/{name}` (per-module entry) — point to sections/exports/imports, and to `disassemble` for the entry point; list items carry only `_links.self`
 - `x64dbg://memory/maps` (top-level) — points to per-region details if expanded
 - `x64dbg://windows` (top-level) — snapshot of debuggee windows
