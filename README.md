@@ -12,9 +12,9 @@ Suited for exploratory navigation. Agents can address these directly by URI.
 
 | URI | Purpose |
 |---|---|
+| `x64dbg://attach/processes{?offset,limit}` | Processes offered by x64dbg for attach |
 | `x64dbg://session` | Session snapshot (platform, debugging state, running state, x64dbg directory), navigation root |
 | `x64dbg://session/debuggee` | Current session debuggee information |
-| `x64dbg://attach/processes{?offset,limit}` | Processes offered by x64dbg for attach |
 | `x64dbg://logging` | Log window info |
 | `x64dbg://threads` | Thread list |
 | `x64dbg://memory/maps` | Memory map |
