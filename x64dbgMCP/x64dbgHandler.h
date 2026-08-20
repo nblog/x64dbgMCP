@@ -1592,7 +1592,7 @@ namespace x64dbgMCP {
             info->Links = gcnew Dictionary<String^, LinkRef^>();
             info->Links["self"] = Helpers::UriLink("x64dbg://session");
             info->Links["attach_processes"] = Helpers::UriLink("x64dbg://attach/processes");
-            info->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
+            info->Links["session_debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
             info->Links["threads"] = Helpers::UriLink("x64dbg://threads");
             info->Links["memory_maps"] = Helpers::UriLink("x64dbg://memory/maps");
             info->Links["modules"] = Helpers::UriLink("x64dbg://modules");
@@ -1631,7 +1631,7 @@ namespace x64dbgMCP {
             return contents;
         }
 
-        [McpServerResource(UriTemplate = "x64dbg://session/debuggee", Name = "debuggee", MimeType = "application/json")]
+        [McpServerResource(UriTemplate = "x64dbg://session/debuggee", Name = "session-debuggee", MimeType = "application/json")]
         [Description("Information about the current session's debuggee: PID, path, command line, image base, thread info, and system structures.")]
         static ResourceContents^ Debuggee()
         {
@@ -1953,7 +1953,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://memory/maps");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
+            payload->Links["session_debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -1991,7 +1991,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://threads");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
+            payload->Links["session_debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -2046,7 +2046,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink(BreakpointsPageUri(pageOffset, pageLimit));
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
+            payload->Links["session_debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -2077,7 +2077,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://windows");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
+            payload->Links["session_debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -2121,7 +2121,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://handles");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
+            payload->Links["session_debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {
@@ -2163,7 +2163,7 @@ namespace x64dbgMCP {
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
             payload->Links["self"] = Helpers::UriLink("x64dbg://tcpconnections");
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
-            payload->Links["debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
+            payload->Links["session_debuggee"] = Helpers::UriLink("x64dbg://session/debuggee");
 
             if (DbgIsDebugging())
             {

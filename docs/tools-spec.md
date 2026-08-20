@@ -78,7 +78,7 @@ public:
     property String^ X64dbgDirectory;   // BridgeUserDirectory()
     property bool IsDebugging;
     property bool IsRunning;
-    property Dictionary<String^, LinkRef^>^ Links;  // → debuggee, attach/processes, modules, memory/maps, threads, windows, handles, tcpconnections, breakpoints, logging
+    property Dictionary<String^, LinkRef^>^ Links;  // → session_debuggee, attach_processes, modules, memory_maps, threads, windows, handles, tcpconnections, breakpoints, logging
 };
 ```
 
@@ -114,9 +114,15 @@ public:
     // property String^ KUserSharedData;    // KUSER_SHARED_DATA address (hex)
     property String^ Path;               // full path to the executable
     property String^ CommandLine;        // full Unicode command line; null when unavailable
-    property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory/maps, threads, windows, handles, tcpconnections, breakpoints
+    property Dictionary<String^, LinkRef^>^ Links;  // → session, modules, memory_maps, threads, windows, handles, tcpconnections, breakpoints
 };
 ```
+
+The MCP Resource metadata name is `session-debuggee`; its fixed canonical URI remains
+`x64dbg://session/debuggee`. Cross-resource navigation payloads use the scoped
+`_links.session_debuggee` relation for this URI; the Resource's own self link remains
+`_links.self`. The naming relationship is defined by
+[ADR-007](adr/007-scoped-hateoas-relation-keys.md).
 
 This Resource replaces the former `x64dbg://process` URI. The old URI is not retained as an
 alias because two equivalent Resources would violate ADR-003's no-duplicate-operation rule.
@@ -280,7 +286,7 @@ public ref class MemoryMapsPayload
 {
 public:
     property List<MemoryRegion^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, session_debuggee
 };
 ```
 
@@ -316,7 +322,7 @@ public ref class ThreadsPayload
 {
 public:
     property List<ThreadInfo^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, session_debuggee
 };
 ```
 
@@ -374,7 +380,7 @@ public ref class BreakpointsPayload
 public:
     property List<BreakpointEntry^>^ Data;
     property PageInfo^ Page;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee, next?, prev?
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, session_debuggee, next?, prev?
 };
 ```
 
@@ -416,7 +422,7 @@ public ref class WindowsPayload
 {
 public:
     property List<WindowInfo^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, session_debuggee
 };
 ```
 
@@ -441,7 +447,7 @@ public ref class HandlesPayload
 {
 public:
     property List<HandleInfo^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, session_debuggee
 };
 ```
 
@@ -468,7 +474,7 @@ public ref class TcpConnectionsPayload
 {
 public:
     property List<TcpConnectionInfo^>^ Data;
-    property Dictionary<String^, LinkRef^>^ Links;  // self, session, debuggee
+    property Dictionary<String^, LinkRef^>^ Links;  // self, session, session_debuggee
 };
 ```
 

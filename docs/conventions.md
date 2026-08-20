@@ -118,6 +118,13 @@ Resources are different: they return raw text or `ResourceContents` per MCP spec
 
 `_links` is a structured map of "where to go next" hints. It appears **only on navigation-root responses** — top-level entry points an agent uses to orient itself. Detail/leaf items do not carry `_links` (it would dwarf the payload), except that each item in `x64dbg://modules` carries only `_links.self` so an agent can open its per-module navigation root.
 
+Relation keys inside `_links` use lowercase `snake_case`. When a relation points to a
+nested resource whose scope would otherwise be ambiguous, qualify the key with its
+parent scope (for example, `session_debuggee`, `attach_processes`, and `memory_maps`).
+These keys are response-vocabulary and are independent of the MCP Resource `Name` and
+the canonical URI. The scoped naming decision for the current session debuggee is recorded
+in [ADR-007](adr/007-scoped-hateoas-relation-keys.md).
+
 Navigation roots (carry `_links`):
 
 - `x64dbg://session`

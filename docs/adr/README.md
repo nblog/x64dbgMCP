@@ -12,6 +12,7 @@ ADRs capture **load-bearing design decisions** — choices that constrain how fu
 | [004](004-typed-result-with-envelope.md) | Typed result classes wrapped in a common `McpResult` envelope | Accepted |
 | [005](005-hateoas-links-on-navigation-roots.md) | HATEOAS `_links` on navigation roots only, not on every leaf | Accepted |
 | [006](006-debug-gui-evidence-capture.md) | `DebugGUI` visual evidence capture and CPU-pane selection control | Accepted |
+| [007](007-scoped-hateoas-relation-keys.md) | Scoped snake_case relation keys for HATEOAS `_links` | Accepted |
 
 ## Status taxonomy
 
