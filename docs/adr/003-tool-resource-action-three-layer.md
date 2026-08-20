@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-24
-- **Amended**: 2026-08-20
+- **Amended**: 2026-08-20 by [ADR-006](006-debug-gui-evidence-capture.md)
 - **Deciders**: @nblog
 
 ## Context
@@ -66,6 +66,7 @@ For **fine-grained per-item CRUD families** and **debug control clusters** that 
 - `debug_control{run, pause, stop, StepInto, StepOver, StepOut, init, attach, run_command}`
 - `breakpoints{get, set, delete, disable, set_hardware, set_batch, delete_batch}`; bulk reads use `x64dbg://breakpoints`
 - `registers{get, set, dump}`, `memory{read, write, alloc, free}`, `threads{get, set_name, set_active, suspend, resume, create_at}`, `logging{clear, put}`
+- `debug_gui{snapshot, focus, get, set}` — visual evidence capture and composed CPU-pane selection control; see [ADR-006](006-debug-gui-evidence-capture.md)
 
 Benefits: tool count compression, symmetric ops live next to each other, batch variants come for free in the same dispatch.
 
@@ -87,7 +88,7 @@ attach command, then restores the previous setting.
 
 ### Estimated surface
 
-The current target catalog is 20 Resources + 6 rich-param Tools (including the gated `assemble`) + 12 action-mega Tools, for 18 Tools in total. Only Tool definitions consume the AI tool-schema budget. With debugger-domain Tools gated off, an agent loads 11 Tool definitions instead of the full 18 (PoC: 50+).
+The current target catalog is 20 Resources + 6 rich-param Tools (including the gated `assemble`) + 13 action-mega Tools, for 19 Tools in total. Only Tool definitions consume the AI tool-schema budget. With debugger-domain Tools gated off, an agent loads 11 Tool definitions instead of the full 19 (PoC: 50+).
 
 `memory{action:"read"}` preserves the earlier `memory_read(addr, size, compress?)` parameter and result design. The standalone Tool was implemented before the symmetric memory family was consolidated; the 2026-08-14 amendment supersedes that original Layer B classification so read/write/alloc/free share one MCP-visible family without duplicating the read operation.
 
@@ -122,6 +123,7 @@ This classification is by **debugger domain and schema cost**, not by whether an
   3. Is it fine-grained per-item CRUD or part of a control cluster? → **action-mega Tool**
 - A concept may span Resource and Tool layers when the Resource supplies a bulk read view and the Tool supplies precise item reads or changes. The exact same operation must not be duplicated across layers.
 - `enableDebugging` membership follows debugger-domain ownership and schema-budget impact, not a generic mutation test.
+- A GUI workflow may compose multiple low-level `Gui*` primitives behind one domain Tool when the ordering and readback are part of the contract; do not expose those primitives as 1:1 Tools without another ADR.
 - Adding a tool that doesn't fit any layer requires an ADR.
 
 ## Alternatives Considered
@@ -139,4 +141,4 @@ This classification is by **debugger domain and schema cost**, not by whether an
 - [MCP — Tools vs Resources vs Prompts](https://rapidevelopers.com/mcp-tutorial/mcp-tools-vs-resources-vs-prompts)
 - [MCP C# SDK — Resource sample](https://github.com/modelcontextprotocol/csharp-sdk/blob/main/samples/EverythingServer/Resources/SimpleResourceType.cs)
 - Prior art (full survey in [references.md](../references.md))
-- Related: [ADR-004](004-typed-result-with-envelope.md), [ADR-005](005-hateoas-links-on-navigation-roots.md), [tools-spec.md](../tools-spec.md)
+- Related: [ADR-004](004-typed-result-with-envelope.md), [ADR-005](005-hateoas-links-on-navigation-roots.md), [ADR-006](006-debug-gui-evidence-capture.md), [tools-spec.md](../tools-spec.md)

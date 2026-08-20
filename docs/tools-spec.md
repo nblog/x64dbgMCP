@@ -928,6 +928,153 @@ public:
 };
 ```
 
+<a id="debug-gui"></a>
+
+### `debug_gui{snapshot, focus, get, set}` 🟢
+
+The managed method is named `DebugGUI`; MCP C# SDK 2.1.0 derives the wire name `debug_gui`. This debugger-domain action-mega Tool composes GUI primitives into evidence-oriented operations rather than exposing `GuiSelectionGet/Set`, `GuiFocusView`, or `GuiRefresh` as separate Tools. It is registered only when `enableDebugging=true`.
+
+| Action | Params | Returns |
+|---|---|---|
+| `snapshot` | `{ save_path?: string }` | `DebugGUISnapshotResult` metadata plus an inline MCP image when `save_path` is omitted; file metadata/path only when supplied |
+| `focus` | `{ window?: "Disassembly" \| "Dump" \| "Stack" = "Disassembly" }` | `DebugGUIFocusResult` after CPU activation, focus, refresh, and GUI event flush |
+| `get` | `{ window: "Disassembly" \| "Dump" \| "Stack" }` | `DebugGUIGetResult` with the pane's current inclusive selection |
+| `set` | `{ window: "Disassembly" \| "Dump" \| "Stack", start: string, end?: string }` | `DebugGUISetResult` with resolved requested and GUI-read-back actual ranges |
+
+Arguments remain flat, consistent with the other action-mega Tools:
+
+```cpp
+[McpServerTool,
+ Description("Capture x64dbg GUI evidence and control CPU-pane focus or selections.")]
+Object^ DebugGUI(
+    [Description("Action: \"snapshot\" | \"focus\" | \"get\" | \"set\"")]
+    String^ action,
+    [Description("CPU pane: \"Disassembly\" | \"Dump\" | \"Stack\"; optional for focus, required for get/set")]
+    [DefaultValue("")]
+    String^ window,
+    [Description("Start address or x64dbg expression (required for action=set)")]
+    [DefaultValue("")]
+    String^ start,
+    [Description("Inclusive end address or x64dbg expression (action=set); omission means end=start")]
+    [DefaultValue("")]
+    String^ end,
+    [Description("Absolute host path to a new .png file (action=snapshot); omission returns an inline image")]
+    [DefaultValue("")]
+    String^ save_path
+);
+```
+
+`window` uses the canonical case-sensitive values above and maps only to `GUI_DISASSEMBLY`, `GUI_DUMP`, and `GUI_STACK`. For `focus`, an empty/omitted `window` is normalized to `Disassembly`; `get` and `set` require it explicitly. `focus`, `get`, and `set` require an active debug session. `snapshot` can capture the x64dbg main window while detached.
+
+#### Result models
+
+```cpp
+public ref class DebugGUIRange
+{
+public:
+    property String^ Start;           // resolved/formatted hex; inclusive
+    property String^ End;             // resolved/formatted hex; inclusive
+};
+
+public ref class DebugGUIArtifact
+{
+public:
+    property String^ Type;            // "image" | "file"
+    property String^ MimeType;        // "image/png"
+    property String^ Path;            // normalized absolute host path for Type == "file"; otherwise null
+};
+
+public ref class DebugGUISnapshotData
+{
+public:
+    property String^ Action;          // "snapshot"
+    property DebugGUIArtifact^ Artifact;
+    property String^ CapturedAtUtc;   // ISO 8601 UTC
+    property int Width;
+    property int Height;
+    property String^ Sha256;          // 64 uppercase hex characters over the exact PNG bytes
+    property String^ WindowTitle;
+    property int DebuggeeProcessId;   // 0 when detached
+};
+
+public ref class DebugGUISnapshotResult : McpResult
+{
+public:
+    property DebugGUISnapshotData^ Data;
+};
+
+public ref class DebugGUIFocusData
+{
+public:
+    property String^ Action;          // "focus"
+    property String^ Window;          // canonical window value
+    property bool Refreshed;          // true only after Refresh + GUI event flush
+};
+
+public ref class DebugGUIFocusResult : McpResult
+{
+public:
+    property DebugGUIFocusData^ Data;
+};
+
+public ref class DebugGUIGetData
+{
+public:
+    property String^ Action;          // "get"
+    property String^ Window;
+    property DebugGUIRange^ Selection;
+};
+
+public ref class DebugGUIGetResult : McpResult
+{
+public:
+    property DebugGUIGetData^ Data;
+};
+
+public ref class DebugGUISetData
+{
+public:
+    property String^ Action;          // "set"
+    property String^ Window;
+    property DebugGUIRange^ Requested;
+    property DebugGUIRange^ Actual;
+    property bool Refreshed;
+};
+
+public ref class DebugGUISetResult : McpResult
+{
+public:
+    property DebugGUISetData^ Data;
+};
+```
+
+For `snapshot`, `artifact` is the delivery discriminator:
+
+- If `save_path` is omitted, `artifact.type="image"`, `artifact.mimeType="image/png"`, and `artifact.path=null`. The Tool returns a `CallToolResult` whose first text block is the serialized `DebugGUISnapshotResult` envelope and whose second block is one `ImageContentBlock` containing the PNG. The PNG is not duplicated as base64 inside the JSON metadata.
+- If `save_path` is supplied, `artifact.type="file"`, `artifact.mimeType="image/png"`, and `artifact.path` is the normalized path. The exact PNG bytes used for the reported hash are written to that path; the result contains only the serialized typed envelope and no inline image block.
+
+`save_path` must be an absolute `.png` filename on the machine running x64dbg. The parent directory must already exist, and an existing target is rejected rather than overwritten. Success requires a complete write; file creation/write failure returns `io_failed`, and the implementation removes any partial file when possible. The Tool never silently switches delivery modes. A host path is not a claim that a remote MCP client can open that path.
+
+The capture boundary is the complete x64dbg main window returned by `GuiGetWindowHandle`, not the desktop and not only one CPU pane. `width`, `height`, title, UTC timestamp, debuggee PID, and SHA-256 describe the same PNG bytes delivered inline or saved. SHA-256 establishes byte identity only; it is not authenticated provenance or a trusted timestamp.
+
+#### Focus and selection sequencing
+
+`focus` activates the CPU page, focuses the selected pane, invokes `Script::Gui::Refresh()`, and processes pending GUI events before returning `refreshed=true`.
+
+`get` reads the selected pane through `Script::Gui::SelectionGet` on the GUI thread and does not change focus, navigation, or selection.
+
+`set` is self-contained; callers do not need a preceding `focus`. It performs the following ordered operation on the GUI thread:
+
+1. Resolve `start` and any supplied `end` before changing GUI state.
+2. Activate the CPU page and navigate the selected pane to the resolved `start`.
+3. Apply the inclusive selection and focus that pane.
+4. Call `Script::Gui::Refresh()` and process pending GUI events.
+5. Read back the actual selection and return it with the resolved requested range.
+
+An omitted `end` is resolved as `end = start`; neither `-1` nor `0` is used as a sentinel. For `Disassembly`, x64dbg expands that request to the complete instruction containing `start`. For `Dump` and `Stack`, the shared `HexDump` implementation retains a one-byte selection. Supplied ranges must resolve with `end >= start` and fit the view's addressable memory page. Because the view may normalize boundaries, a caller that needs visual evidence must rely on `actual` before calling `snapshot`.
+
+Errors: `invalid_argument` (unknown action/window, missing action-specific input, reversed range, non-absolute/non-PNG `save_path`, missing parent directory, or existing destination); `not_attached` (`focus/get/set` without a debug session); `not_found` (unresolvable expression or range outside the pane's address space); `x64dbg_failed` (window handle, capture, navigation, selection, refresh, or readback failure); `io_failed` (validated file target could not be completely created/written).
+
 ### `logging{clear, put}` 🟢
 
 ```cpp
@@ -1035,7 +1182,8 @@ public:
 
 The following PoC-era tools are intentionally **not** exposed in the v0 baseline:
 
-- `Gui*` (GuiMessage, GuiMessageYesNo, GuiSelectionGet/Set, GuiFocusView, GuiRefresh) — UX-coupling, low automation value
+- `GuiMessage` / `GuiMessageYesNo` — interactive modal UX is unsuitable for unattended MCP automation
+- 1:1 `GuiSelectionGet/Set`, `GuiFocusView`, and `GuiRefresh` Tools — the supported evidence workflow composes them behind `debug_gui`; see [ADR-006](adr/006-debug-gui-evidence-capture.md)
 - `Script*` (ScriptLoad, ScriptRun, ScriptAbort, ScriptCmdExec) — superseded by `debug_control{action:"run_command"}`
 - `Watch*` — niche; revisit if user-driven need emerges
 - Per-flag `GetFlag` / `SetFlag` / per-register `GetRegister` / `SetRegister` — covered by `registers{get,set,dump}` with name-based addressing
@@ -1073,6 +1221,7 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | `SetThreadName`, `SetActiveThread`, `SuspendThread`, `ResumeThread`, `CreateThread` | `threads{...}` | |
 | `Assemble` | tool `assemble` | Added `fillNops` |
 | `LogPuts` | `logging{action:"put"}` | `x64dbg://logging` supplies the read snapshot; `logging{action:"clear"}` adds the matching clear action |
-| `Gui*`, `Script*`, `*Watch*` | (excluded) | See §7 |
+| `GuiSelectionGet/Set`, `GuiFocusView`, `GuiRefresh` | `debug_gui{focus,get,set}` | Composed GUI-thread workflow; screenshot capture is a new `snapshot` action |
+| `GuiMessage*`, `Script*`, `*Watch*` | (excluded) | See §7 |
 
-Target surface: **20 Resources + 6 rich-param Tools (including gated `assemble`) + 12 action-mega Tools = 38 entries**. Only the 18 Tool definitions consume the AI tool-schema budget; with the debugger-domain catalog disabled, the default Tool catalog is 11 definitions (PoC was 50+).
+Target surface: **20 Resources + 6 rich-param Tools (including gated `assemble`) + 13 action-mega Tools = 39 entries**. Only the 19 Tool definitions consume the AI tool-schema budget; with the debugger-domain catalog disabled, the default Tool catalog is 11 definitions (PoC was 50+).

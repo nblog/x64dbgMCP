@@ -19,6 +19,8 @@ External resources used as authoritative sources for design and implementation. 
 - [SimpleResourceType.cs](https://github.com/modelcontextprotocol/csharp-sdk/blob/main/samples/EverythingServer/Resources/SimpleResourceType.cs) — `[McpServerResource(UriTemplate=...)]` reference for our resource layer
 - [`AIFunctionMcpServerTool.DeriveName` in v2.1.0](https://github.com/modelcontextprotocol/csharp-sdk/blob/v2.1.0/src/ModelContextProtocol.Core/Server/AIFunctionMcpServerTool.cs#L337-L383) — default MCP-visible Tool names are derived with `JsonNamingPolicy.SnakeCaseLower`
 - [`McpServerToolAttribute` in v2.1.0](https://github.com/modelcontextprotocol/csharp-sdk/blob/v2.1.0/src/ModelContextProtocol.Core/Server/McpServerToolAttribute.cs) — exception-to-failed-result behavior and the opt-in `UseStructuredContent` / `OutputSchemaType` boundary
+- [MCP C# SDK v2.1.0 Tool content](https://github.com/modelcontextprotocol/csharp-sdk/blob/v2.1.0/docs/concepts/tools/tools.md#content-types) — Tools may return text, image, audio, resource links, embedded resources, or mixed `CallToolResult` content
+- [`AIFunctionMcpServerTool` result conversion in v2.1.0](https://github.com/modelcontextprotocol/csharp-sdk/blob/v2.1.0/src/ModelContextProtocol.Core/Server/AIFunctionMcpServerTool.cs#L291-L327) — preserves `CallToolResult`, `ContentBlock`, and `IEnumerable<ContentBlock>` instead of JSON-serializing them as ordinary objects
 - NuGet packages used by this project (2.1.0):
   - `ModelContextProtocol`
   - `ModelContextProtocol.AspNetCore`
@@ -92,6 +94,16 @@ When implementing a `debug_control` action that maps onto a raw command, consult
 
 - [x64dbg/x64dbg](https://github.com/x64dbg/x64dbg) — main repository
 - [x64dbg pluginsdk source](https://github.com/x64dbg/x64dbg/tree/development/src/dbg/pluginsdk) — authoritative source for pluginsdk headers (compare against vendored copies during SDK upgrades)
+
+#### x64dbg GUI evidence APIs
+
+- [`Script::Gui` selection and refresh wrappers at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/_scriptapi_gui.h#L10-L70) — typed `Disassembly`/`Dump`/`Stack` selection access, generic `Window`, and `Refresh`
+- [`GuiGetWindowHandle`, CPU navigation/focus, event processing, and GUI-thread execution declarations](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/bridge/bridgemain.h#L1479-L1602) — main-window capture boundary and ordered GUI execution primitives
+- [`GuiFocusView` documentation](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/docs/developers/functions/gui/GuiFocusView.md#L1-L20) — focuses `GUI_DISASSEMBLY`, `GUI_DUMP`, or `GUI_STACK`
+- [GUI selection message dispatch](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/gui/Src/Bridge/Bridge.cpp#L680-L759) — bridge routes get/set by GUI window enum
+- [CPU Disassembly selection set/readback](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/gui/Src/Gui/CPUDisassembly.cpp#L1331-L1352) and [single-instruction expansion](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/gui/Src/BasicView/Disassembly.cpp#L1551-L1573) — `start == end` is normalized to the complete instruction
+- [CPU Dump selection set/readback](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/gui/Src/Gui/CPUDump.cpp#L1373-L1395), [CPU Stack selection set/readback](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/gui/Src/Gui/CPUStack.cpp#L706-L727), and [shared HexDump single-byte selection](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/gui/Src/BasicView/HexDump.cpp#L884-L910) — `start == end` remains one byte
+
 - [Attach dialog at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/gui/Src/Gui/AttachDialog.cpp#L151-L218) — GUI precedent for decimal `attach .<pid>` command construction and detach-on-attach selection
 - [Attach dialog process snapshot at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/gui/Src/Gui/AttachDialog.cpp#L63-L83) — maps `DBGPROCESSINFO` to PID, derived name, title, path, and command-line-arguments columns
 - [Qt 5 `QFileInfo::baseName`](https://doc.qt.io/qt-5/qfileinfo.html#baseName) — the Attach dialog's process name stops at the first dot, unlike last-extension-only path helpers

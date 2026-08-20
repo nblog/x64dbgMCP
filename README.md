@@ -64,6 +64,7 @@ Loaded only when `enableDebugging=true`, to avoid bloating the default tool sche
 - `Memory { read(addr, size, compress?), write, alloc }` — `read` returns base64; `compress=true` uses lz4
 - `Threads { suspend, resume, create_at, set_name, set_active }`
 - `Breakpoints { set, delete, disable, set_hardware }`
+- `DebugGUI { snapshot, focus, get, set }` — Operate the x64dbg main window as a visual source, focus the CPU pane, and read or set GUI selections
 
 ---
 

@@ -2,7 +2,7 @@
 
 本文件是开发完成度与验证边界的唯一来源。根级 [`README.md`](../README.md) 按最终产品能力描述；目标契约以 [`tools-spec.md`](tools-spec.md) 为准；本文件只回答“代码现在实现了什么、验证到了哪一步、还差什么”。`tools-spec.md` 中的 🟢/🟡/⚪ 表示契约成熟度，不表示代码完成度。
 
-> Snapshot: 2026-08-20，base HEAD `7a3ca6a`；最近一次双架构 live MCP 验收完成于 2026-08-09，`disassemble` import 符号化、breakpoints Resource 与 `memory{action:"read"}` 迁移的 x64 专项验收完成于 2026-08-14；breakpoints Tool 的首批 mutation 与统一 `get/disable/delete` 于 2026-08-17 完成 x64 live MCP 专项验收和 x86 build-only 验证；`debug_control{action:"attach"}`、Resource namespace migration 与 attach candidates 于 2026-08-20 分别完成 x64 live MCP + NtObjectManager 闭环和 x86 build-only 验证。统计先以实时 MCP `tools/list`、`resources/list`、`resources/templates/list` 为准，再与 `x64dbgMCP/x64dbgHandler.h` 中的注册和实现交叉核对；不是从根级 README 的产品清单反推。
+> Snapshot: 2026-08-20，base HEAD `652610e`；最近一次双架构 live MCP 验收完成于 2026-08-09，`disassemble` import 符号化、breakpoints Resource 与 `memory{action:"read"}` 迁移的 x64 专项验收完成于 2026-08-14；breakpoints Tool 的首批 mutation 与统一 `get/disable/delete` 于 2026-08-17 完成 x64 live MCP 专项验收和 x86 build-only 验证；`debug_control{action:"attach"}`、Resource namespace migration 与 attach candidates 于 2026-08-20 分别完成 x64 live MCP + NtObjectManager 闭环和 x86 build-only 验证。`DebugGUI` 于 2026-08-20 仅完成 ADR/目标契约，尚未实现或验证。统计先以实时 MCP `tools/list`、`resources/list`、`resources/templates/list` 为准，再与 `x64dbgMCP/x64dbgHandler.h` 中的注册和实现交叉核对；不是从根级 README 的产品清单反推。
 
 ## Coverage
 
@@ -14,8 +14,8 @@
 | **All Resources** | **20** | **15** | **5** |
 | Always-registered rich-param Tools | 5 | 1 | 4 |
 | Analysis action-mega Tools | 6 | 0 | 6 |
-| Debugger-domain Tools | 7 | 5 | 2 |
-| **All Tools** | **18** | **6** | **12** |
+| Debugger-domain Tools | 8 | 5 | 3 |
+| **All Tools** | **19** | **6** | **13** |
 
 ### Runtime catalog
 
@@ -27,7 +27,7 @@
 
 实时 `tools/list` 返回 6 个 MCP-visible Tools：常驻的 `disassemble`，以及由调试领域目录门控的 `debug_control`、`breakpoints`、`registers`、`memory`、`logging`。`debug_control` 当前在既有 control cluster 中公开 `attach`，平铺参数为 `pid:int` 与 `detach2attach:bool=false`。`breakpoints` 当前公开 `get`、`set`、`set_hardware`、`disable`、`delete`；`get/disable/delete` 以可选 `kind=normal|hardware` 处理同址双断点歧义，旧 `delete_hardware` 已移除。独立 `memory_read` 已从目录移除，`memory` 当前只公开 `read` action。action-mega Tool 的输入 Schema 均直接保留各 action 的平铺参数，没有嵌套 `params`。C++/CLI 方法使用 `PascalCase`，MCP C# SDK 2.1.0 默认把它们派生为上述 `snake_case` wire names。
 
-其余 12 个目标 Tool definitions 尚未实现：常驻 rich-param 的 `find_pattern`、`parse_expression`、`get_string_at`、`get_call_stack`；分析 action-mega 的 `symbols`、`functions`、`labels`、`comments`、`bookmarks`、`xrefs`；调试领域的 `threads`、`assemble`。`breakpoints` 的 `set_batch`、`delete_batch` 与 `memory` 的 `write`、`alloc`、`free` 仍是 action 级缺口，不重复计为缺失 Tool definitions。寄存器批量读取已由 `registers{action:"dump"}` 实现，契约不再重复保留 `get_register_dump`。
+其余 13 个目标 Tool definitions 尚未实现：常驻 rich-param 的 `find_pattern`、`parse_expression`、`get_string_at`、`get_call_stack`；分析 action-mega 的 `symbols`、`functions`、`labels`、`comments`、`bookmarks`、`xrefs`；调试领域的 `threads`、`assemble`、`debug_gui`。`debug_gui` 的 managed 方法名已定为 `DebugGUI`，SDK 派生的 MCP wire name 为 `debug_gui`；其 `snapshot/focus/get/set` 仅是 [ADR-006](adr/006-debug-gui-evidence-capture.md) 和 [tools-spec.md](tools-spec.md#debug-gui) 中的目标契约。`breakpoints` 的 `set_batch`、`delete_batch` 与 `memory` 的 `write`、`alloc`、`free` 仍是 action 级缺口，不重复计为缺失 Tool definitions。寄存器批量读取已由 `registers{action:"dump"}` 实现，契约不再重复保留 `get_register_dump`。
 
 ## Current milestone
 
@@ -58,6 +58,7 @@
 | `registers` | Verified on x64 and x86 | Active dump, get, set-to-same-value, architecture-specific register sets, paused inactive-thread dump, missing thread, and running-target `not_paused` paths passed |
 | `debug_control` | Verified on current x64 | Final deployed binary's detached attach to Notepad PID 10316 returned provisional `success:true` with `isDebugging:false`; the first Resource poll converged to `session.isDebugging=true` and `session/debuggee.processId=10316`, with exact path and full command line matching NtObjectManager (x64, non-WOW64, Session 10, unchanged creation time). Earlier attach validation proved `pid=0` rejection, active-session false/omitted rejection, explicit `detach2attach=true` switching between PIDs 11064/36760 while restoring `Engine/DetachOnAttach=0`, and the then-current process Resource retained the old target until a permitted switch. Previous `init/run/pause/stop/StepInto/StepOver/StepOut/run_command(wait=true)` and x32 lifecycle evidence is retained |
 | `logging` | Verified on x64 and x86 | After displaying the Log tab, `clear` → `put` → Resource read preserved exact Chinese UTF-8 text; empty `put` returned `invalid_argument` |
+| `debug_gui` | Contract only | ADR-006 and the target schema are accepted. No method, `tools/list` registration, GUI capture, file delivery, selection behavior, build, deployment, or live x32dbg/x64dbg evidence exists yet |
 | Tool output schema | Known SDK boundary | Current `[McpServerTool]` annotations do not set `UseStructuredContent`; typed results are returned as JSON text content and are not advertised as `outputSchema` in `tools/list` |
 | Logging snapshot boundary | Upstream-defined | `GuiLogSave` serializes the rendered `QTextDocument`; while the Log tab is hidden, x64dbg may retain newer messages in its private `logBuffer` until the tab is displayed and its flush timer runs |
 | Electron PDB | Partially observable | Waited more than two minutes and x64dbg resource use stabilized, but the current MCP surface has no symbols Resource/Tool, so PDB symbol enumeration was not and cannot be claimed as verified |
@@ -67,7 +68,7 @@
 ## Known conformance gaps
 
 1. Per-module `_links.entry_disasm.tool` is currently emitted as the managed method name `Disassemble`, while MCP C# SDK 2.1.0 registers the wire name `disassemble`. The Resource payload is readable, but a case-sensitive client cannot invoke that link verbatim. Code must emit the wire name defined by [conventions.md](conventions.md#1-naming).
-2. The five reserved Resources and twelve target Tool definitions listed under Coverage are not registered. Their presence in the root README describes the intended product surface, not current implementation.
+2. The five reserved Resources and thirteen target Tool definitions listed under Coverage are not registered. Their presence in the root README describes the intended product surface, not current implementation.
 3. The registered `memory` Tool currently implements only `read`; target actions `write`, `alloc`, and `free` remain undispatched and are deliberately excluded from its live description.
 4. General Symbol/PDB enumeration has no MCP-observable Resource/Tool contract yet. `disassemble` exposes only exact module-import/IAT references; large-PDB process stability is evidence about the host session only, not evidence that arbitrary symbols can be queried through MCP.
 
@@ -81,9 +82,10 @@
 ## Next implementation order
 
 1. 先修复现有 `_links.entry_disasm.tool` 的 wire-name 漂移，并增加目录/链接一致性检查，避免 Resource 导航指向不存在的 Tool。
-2. 补齐常驻 rich-param 查询：`parse_expression` → `get_string_at` → `find_pattern` → `get_call_stack`。
-3. 成对实现批量 Resource 与单项 Tool：symbols → labels → comments → bookmarks → functions；`xrefs` 只保留目标地址上的精细 Tool。Symbols 应包含可验证的 PDB 加载/枚举状态，使 Electron 大型 PDB 场景第一次具备 MCP 语义验收面。
-4. 扩展调试领域目录：`memory{write,alloc,free}` → `threads` → `assemble`；breakpoints 的批量 Resource 与五个首批 mutation actions、`memory{read}` 已完成。
-5. 重验双架构 Release、`mcp.stop` → restart 和端口占用失败传播；在行为稳定后，为单测/集成测试策略新增 ADR，并把 live smoke cases 固化为可重复测试入口。
+2. 按 [ADR-006](adr/006-debug-gui-evidence-capture.md) 实现并专项验收 `debug_gui`：先闭环主窗口 PNG 的 inline/file 互斥交付和 SHA-256，再验证三类 CPU pane 的 focus/get/set、缺省 `end=start` 与 requested/actual readback。x64 与 x86 都必须做真实 GUI 验收，不能以 build-only 代替。
+3. 补齐常驻 rich-param 查询：`parse_expression` → `get_string_at` → `find_pattern` → `get_call_stack`。
+4. 成对实现批量 Resource 与单项 Tool：symbols → labels → comments → bookmarks → functions；`xrefs` 只保留目标地址上的精细 Tool。Symbols 应包含可验证的 PDB 加载/枚举状态，使 Electron 大型 PDB 场景第一次具备 MCP 语义验收面。
+5. 扩展其余调试领域目录：`memory{write,alloc,free}` → `threads` → `assemble`；breakpoints 的批量 Resource 与五个首批 mutation actions、`memory{read}` 已完成。
+6. 重验双架构 Release、`mcp.stop` → restart 和端口占用失败传播；在行为稳定后，为单测/集成测试策略新增 ADR，并把 live smoke cases 固化为可重复测试入口。
 
 每一批继续遵守 Docs-first：先把 🟡/⚪ 契约收敛为可实施 schema，再改代码；若实现证据与基线冲突，按根级 `AGENTS.md` 要求先停止并对齐文档。

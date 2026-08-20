@@ -99,7 +99,7 @@ The plugin executes as a **single in-process mixed-mode DLL**. The native side h
 ## 4. Threading
 
 - The MCP server runs on a single background `Task` started from `Task::Run`. ASP.NET Core then dispatches incoming requests onto thread-pool threads.
-- **Most x64dbg pluginsdk calls happen on those request threads.** `Script::*` APIs are generally documented as safe from any thread (they internally marshal to debugger threads where needed), while GUI-only calls are explicit exceptions: `x64dbg://logging` marshals `GuiLogSave` to the x64dbg GUI thread. When a specific API is not thread-safe, the tool must marshal explicitly — see [conventions.md](conventions.md#9-threading) for the pattern.
+- **Most x64dbg pluginsdk calls happen on those request threads.** `Script::*` APIs are generally documented as safe from any thread (they internally marshal to debugger threads where needed), while GUI-only calls are explicit exceptions: `x64dbg://logging` marshals `GuiLogSave` to the x64dbg GUI thread, and `debug_gui` executes each composed navigation/selection/refresh/readback or capture sequence on that thread. When a specific API is not thread-safe, the tool must marshal explicitly — see [conventions.md](conventions.md#9-threading) for the pattern.
 - Current Tool methods do not accept `CancellationToken`. Before implementing a potentially long-running operation such as `find_pattern` over all modules, decide and document how MCP cancellation propagates to the underlying x64dbg work.
 
 ---
@@ -112,13 +112,15 @@ The MCP-visible surface is split into three forms based on access pattern. Detai
 |---|---|---|
 | **Resource** (`[McpServerResource]`) | Read-only bulk snapshots and collection navigation | `x64dbg://logging`, `x64dbg://modules`, `x64dbg://modules/{name}/sections`, `x64dbg://memory/maps`, `x64dbg://windows`, `x64dbg://handles`, `x64dbg://tcpconnections` |
 | **Rich-param Tool** (`[McpServerTool]`) | Focused operations over one target or a bounded hot-path window | `disassemble(addr, count)`, `find_pattern(pattern, maxResults)`, `assemble(addr, instruction)` |
-| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Fine-grained per-item reads/updates and debugger control clusters | `labels{get/set/delete + batch}`, `debug_control{init/attach/run/pause/Step*}`, `breakpoints{get/set/delete + batch}`, `memory{read/write/alloc/free}` |
+| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Fine-grained per-item reads/updates and debugger control clusters | `labels{get/set/delete + batch}`, `debug_control{init/attach/run/pause/Step*}`, `breakpoints{get/set/delete + batch}`, `memory{read/write/alloc/free}`, `debug_gui{snapshot/focus/get/set}` |
 
 A Resource and Tool may cover the same domain when their access patterns differ: the Resource is the compact bulk-read surface, while the Tool addresses or changes individual items. They must not duplicate the same operation with equivalent inputs and outputs.
 
 `x64dbg://logging` is backed by `GuiLogSave`, the upstream API for snapshotting the rendered Log view. Because that API accepts only a filename, each read marshals the save to the GUI thread, materializes a unique host temporary file, reads it as UTF-8, and immediately deletes it after the successful read. x64dbg stops the LogView flush timer while the Log tab is hidden, so messages still in its private pending buffer are not part of the rendered document until upstream displays the tab and flushes them.
 
-The `enableDebugging` flag on `McpServerHost::Start` controls whether the debugger-domain `McpDebuggingTools` catalog is registered. Its purpose is to keep execution control, breakpoints, registers, memory operations, thread control, assembly, and logging from inflating every agent's tool schema. It is **not** a general read/write or authorization boundary: analysis-domain tools may update x64dbg analysis metadata while remaining in the always-registered `McpAnalysisTools` catalog.
+The `enableDebugging` flag on `McpServerHost::Start` controls whether the debugger-domain `McpDebuggingTools` catalog is registered. Its purpose is to keep execution control, breakpoints, registers, memory operations, thread control, assembly, logging, and GUI evidence operations from inflating every agent's tool schema. It is **not** a general read/write or authorization boundary: analysis-domain tools may update x64dbg analysis metadata while remaining in the always-registered `McpAnalysisTools` catalog.
+
+`debug_gui{action:"snapshot"}` is the sole mixed-content Tool in the target catalog. Inline delivery returns the normal typed JSON envelope as text plus one MCP `ImageContentBlock(image/png)`. When `save_path` is supplied, it instead creates a PNG on the x64dbg host and returns only typed metadata and the normalized path. The Tool captures the complete x64dbg main window, not the desktop or only the selected CPU pane; detailed selection, path, and evidence semantics live in [ADR-006](adr/006-debug-gui-evidence-capture.md).
 
 ---
 

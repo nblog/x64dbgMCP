@@ -30,6 +30,7 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 | 新增/修改 MCP Tool | [conventions.md](conventions.md) → [tools-spec.md](tools-spec.md) → [adr/003](adr/003-tool-resource-action-three-layer.md) |
 | 新增/修改 MCP Resource | [conventions.md](conventions.md) → [tools-spec.md](tools-spec.md#2-resources) → [adr/003](adr/003-tool-resource-action-three-layer.md) |
 | 设计返回结构 / 错误处理 | [conventions.md](conventions.md#4-result-envelope) + [adr/004](adr/004-typed-result-with-envelope.md) |
+| 设计/实施 GUI 截图取证、聚焦或选区控制 | [adr/006](adr/006-debug-gui-evidence-capture.md) → [tools-spec.md](tools-spec.md#debug-gui) → [conventions.md](conventions.md#9-threading) |
 | 处理寄存器/标志位/表达式输入 | [adr/002](adr/002-resolve-via-x64dbg-expression.md) |
 | 修改 server 启动 / 生命周期 / 端口 / 命令注册 | [architecture.md](architecture.md) |
 | 引入大型设计变更 | 先查 [adr/](adr/) 是否已存在；若无，**先提议新增 ADR**，再实施 |

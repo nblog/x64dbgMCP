@@ -10,9 +10,9 @@ This document encodes the **non-negotiable rules** for shaping MCP tools, resour
 
 | Element | Rule | Example |
 |---|---|---|
-| Tool method (managed) | `PascalCase`, verb-first | `Disassemble`, `GetMemoryMap`, `FindPattern` |
-| Tool `Name` (MCP-visible) | `snake_case`; MCP C# SDK 2.1.0 derives this from the managed method when `Name` is unset | `Disassemble` → `disassemble`, `Memory` → `memory` |
-| Action-mega tool | Lowercase family/control noun; the `action` parameter normally uses `snake_case` | `breakpoints{action:"get"\|"set"\|"delete"\|"set_batch"}` |
+| Tool method (managed) | `PascalCase`; rich-param methods are verb-first, action-mega methods use the family/control noun | `Disassemble`, `DebugControl`, `DebugGUI` |
+| Tool `Name` (MCP-visible) | `snake_case`; MCP C# SDK 2.1.0 derives this from the managed method when `Name` is unset | `Disassemble` → `disassemble`, `DebugGUI` → `debug_gui` |
+| Action-mega wire name | `snake_case` family/control noun; the `action` parameter normally also uses `snake_case` | `debug_gui{action:"snapshot"\|"focus"\|"get"\|"set"}` |
 | Resource URI scheme | `x64dbg://` (single scheme for the whole project) | — |
 | Resource URI template | `lowercase`, hyphenated, hierarchical, plural collections | `x64dbg://modules`, `x64dbg://modules/{name}/sections` |
 | Helper class | `Helpers`, `internal` access only | — |
@@ -83,7 +83,9 @@ public:
 };
 ```
 
-Tools return the envelope object directly; the MCP framework serialises it to JSON via `System.Text.Json`. With the current `[McpServerTool]` annotations, SDK 2.1.0 returns that JSON in Tool text content and does not publish an `outputSchema`; typed classes still constrain the implementation and documented wire shape. Enabling `UseStructuredContent` is a separate protocol-surface change that requires contract and live-client validation. See [adr/004-typed-result-with-envelope.md](adr/004-typed-result-with-envelope.md).
+Tools normally return the envelope object directly; the MCP framework serialises it to JSON via `System.Text.Json`. With the current `[McpServerTool]` annotations, SDK 2.1.0 returns that JSON in Tool text content and does not publish an `outputSchema`; typed classes still constrain the implementation and documented wire shape. Enabling `UseStructuredContent` is a separate protocol-surface change that requires contract and live-client validation. See [adr/004-typed-result-with-envelope.md](adr/004-typed-result-with-envelope.md).
+
+A Tool that must emit native non-text MCP content may return a `CallToolResult` as a narrow exception. Its first text block still contains the serialized typed `McpResult` envelope; additional content blocks carry the declared media. `debug_gui{action:"snapshot"}` follows this rule only for `artifact.type="image"`, adding one `ImageContentBlock(image/png)`. Its `artifact.type="file"` variant returns the typed metadata/path without inline image content. See [ADR-006](adr/006-debug-gui-evidence-capture.md).
 
 Resources are different: they return raw text or `ResourceContents` per MCP spec; the envelope rule does not apply to them.
 
@@ -105,6 +107,7 @@ Resources are different: they return raw text or `ResourceContents` per MCP spec
 - `not_paused` — target is running and the operation requires pause
 - `unsupported` — operation not supported on current arch / build
 - `x64dbg_failed` — underlying SDK call returned failure with no further info
+- `io_failed` — an explicitly requested host-filesystem operation could not be completed
 - `internal` — fallback for genuinely unexpected conditions (prefer `throw` instead)
 
 > Rationale for envelope-over-throw on caller/operational errors: see [adr/004-typed-result-with-envelope.md](adr/004-typed-result-with-envelope.md). Unhandled exceptions remain reserved for true bugs; the envelope code `internal` is only a fallback for a detected unexpected failure that the implementation can still report safely.
@@ -209,6 +212,7 @@ Closed-set parameters: enumerate values inside the description. The MCP tool sch
 Tools execute on ASP.NET Core thread-pool threads. Most `Script::*` APIs are safe from any thread; specific exceptions:
 
 - `Script::Gui::*` — must be marshalled to the GUI thread. Use `GuiExecuteOnGuiThread` or queue via `DbgCmdExec` if a x64dbg command equivalent exists.
+- Composed GUI workflows — marshal the ordered navigation/mutation/refresh/readback sequence as one GUI-thread operation. For `DebugGUI`, call `Script::Gui::Refresh()` and process pending GUI events before selection readback or pixel capture; do not return success while the visible pane still reflects pre-request state.
 - `DbgCmdExec` — fire-and-forget; use `DbgCmdExecDirect` if you need to wait for completion.
 - Do **not** call `Script::Debug::Run` / `StepInto` / etc. from a tool that itself blocks waiting for a pause — that deadlocks the request thread. Either return immediately or expose the wait as a separate poll-based tool.
 

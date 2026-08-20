@@ -64,6 +64,7 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 - `Memory { read(addr, size, compress?), write, alloc }` — `read` 以 base64 返回；`compress=true` 使用 lz4
 - `Threads { suspend, resume, create_at, set_name, set_active }`
 - `Breakpoints { set, delete, disable, set_hardware }`
+- `DebugGUI { snapshot, focus, get, set }` — 操作 x64dbg 主窗口作为可视化源，聚焦 CPU 子窗口，并读取或设置 GUI 选区
 
 ---
 
