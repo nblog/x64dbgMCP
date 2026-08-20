@@ -2,7 +2,7 @@
 
 - **Status**: Accepted
 - **Date**: 2026-05-24
-- **Amended**: 2026-08-14
+- **Amended**: 2026-08-20
 - **Deciders**: @nblog
 
 ## Context
@@ -63,7 +63,7 @@ For **fine-grained per-item CRUD families** and **debug control clusters** that 
 
 - `labels{get, set, delete, set_batch, delete_batch}`; bulk reads use `x64dbg://labels`
 - `comments{...}`, `bookmarks{...}`, `functions{...}`, `xrefs{...}`
-- `debug_control{run, pause, stop, StepInto, StepOver, StepOut, init, run_command}`
+- `debug_control{run, pause, stop, StepInto, StepOver, StepOut, init, attach, run_command}`
 - `breakpoints{get, set, delete, disable, set_hardware, set_batch, delete_batch}`; bulk reads use `x64dbg://breakpoints`
 - `registers{get, set, dump}`, `memory{read, write, alloc, free}`, `threads{get, set_name, set_active, suspend, resume, create_at}`, `logging{clear, put}`
 
@@ -77,6 +77,13 @@ sole match, while two matches fail before mutation and require `kind="normal"` o
 trigger-type, size, alignment, and debug-register-slot constraints. This 2026-08-17 refinement
 supersedes the earlier reserved `delete_hardware` action rather than exposing two deletion names
 for one conceptual operation.
+
+`debug_control{action:"attach"}` remains in the existing control cluster rather than becoming a
+separate Tool. Its `detach2attach=false` default rejects an active debug session before side
+effects. An explicit `true` detaches the current debuggee and leaves it running before attaching
+the requested PID. The option is scoped to one invocation: the implementation temporarily
+overrides x64dbg's global `Engine/DetachOnAttach` setting only while synchronously dispatching the
+attach command, then restores the previous setting.
 
 ### Estimated surface
 

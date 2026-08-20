@@ -112,7 +112,7 @@ The MCP-visible surface is split into three forms based on access pattern. Detai
 |---|---|---|
 | **Resource** (`[McpServerResource]`) | Read-only bulk snapshots and collection navigation | `x64dbg://logging`, `x64dbg://modules`, `x64dbg://modules/{name}/sections`, `x64dbg://memory/maps`, `x64dbg://windows`, `x64dbg://handles`, `x64dbg://tcpconnections` |
 | **Rich-param Tool** (`[McpServerTool]`) | Focused operations over one target or a bounded hot-path window | `disassemble(addr, count)`, `find_pattern(pattern, maxResults)`, `assemble(addr, instruction)` |
-| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Fine-grained per-item reads/updates and debugger control clusters | `labels{get/set/delete + batch}`, `debug_control{init/run/pause/Step*}`, `breakpoints{get/set/delete + batch}`, `memory{read/write/alloc/free}` |
+| **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Fine-grained per-item reads/updates and debugger control clusters | `labels{get/set/delete + batch}`, `debug_control{init/attach/run/pause/Step*}`, `breakpoints{get/set/delete + batch}`, `memory{read/write/alloc/free}` |
 
 A Resource and Tool may cover the same domain when their access patterns differ: the Resource is the compact bulk-read surface, while the Tool addresses or changes individual items. They must not duplicate the same operation with equivalent inputs and outputs.
 

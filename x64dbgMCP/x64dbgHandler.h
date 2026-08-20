@@ -7,11 +7,16 @@
 #include <future>
 #include <msclr/marshal.h>
 #include <msclr/marshal_cppstd.h>
+#include <mutex>
 #include <string>
 #include <winternl.h>
 #include <vector>
 
 namespace x64dbgMCP {
+
+    namespace {
+        std::mutex g_attachMutex;
+    }
 
     using namespace System;
     using namespace System::Collections::Generic;
@@ -1882,6 +1887,7 @@ namespace x64dbgMCP {
             "Debug control. Drives the x64dbg debug session.\n"
             "Actions:\n"
             "  init        : { exePath, cmdLine?, curFolder? } -- load and start a new debuggee\n"
+            "  attach      : { pid, detach2attach? } -- attach to a process; opt in to detaching an active debuggee\n"
             "  stop        : detach/terminate the debuggee\n"
             "  run         : continue execution (returns immediately, does not wait for next pause)\n"
             "  pause       : break into the debugger\n"
@@ -1891,7 +1897,7 @@ namespace x64dbgMCP {
             "  run_command : { command, wait? } -- raw x64dbg command (https://help.x64dbg.com/en/latest/commands/index.html); wait=true uses DbgCmdExecDirect\n"
         )]
         static Object^ DebugControl(
-            [Description("Action: \"run\"|\"pause\"|\"stop\"|\"StepInto\"|\"StepOver\"|\"StepOut\"|\"init\"|\"run_command\"")]
+            [Description("Action: \"run\"|\"pause\"|\"stop\"|\"StepInto\"|\"StepOver\"|\"StepOut\"|\"init\"|\"attach\"|\"run_command\"")]
             String^ action,
             [Description("Path to executable (required for action=init)")]
             [DefaultValue("")]
@@ -1902,6 +1908,12 @@ namespace x64dbgMCP {
             [Description("Current folder for the debuggee (action=init only)")]
             [DefaultValue("")]
             String^ curFolder,
+            [Description("Positive decimal Windows process ID (required for action=attach)")]
+            [DefaultValue(0)]
+            int pid,
+            [Description("If true, detach the active debuggee before action=attach; defaults to false")]
+            [DefaultValue(false)]
+            bool detach2attach,
             [Description("Raw x64dbg command (required for action=run_command)")]
             [DefaultValue("")]
             String^ command,
@@ -1932,6 +1944,10 @@ namespace x64dbgMCP {
                 }
                 cmd = BuildInitCommand(exePath, cmdLine, curFolder);
                 needsAttach = false;
+            }
+            else if (action == "attach")
+            {
+                return AttachAction(pid, detach2attach);
             }
             else if (action == "run_command")
             {
@@ -2634,6 +2650,79 @@ namespace x64dbgMCP {
                 AppendQuoted(sb, curFolder);
             }
             return sb->ToString();
+        }
+
+        static DebugControlResult^ AttachAction(int pid, bool detach2attach)
+        {
+            auto r = gcnew DebugControlResult();
+            r->Action = "attach";
+
+            if (pid <= 0)
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("invalid_argument", "pid must be a positive decimal process ID for action=attach");
+                return r;
+            }
+
+            std::lock_guard<std::mutex> lock(g_attachMutex);
+            bool wasDebugging = DbgIsDebugging();
+            if (wasDebugging && !detach2attach)
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError(
+                    "invalid_argument",
+                    "detach2attach must be true when action=attach is called during an active debug session");
+                return r;
+            }
+
+            char previousDetachOnAttach[MAX_SETTING_SIZE] = {};
+            bool hadPreviousSetting = false;
+            if (wasDebugging)
+            {
+                hadPreviousSetting = BridgeSettingGet(
+                    "Engine",
+                    "DetachOnAttach",
+                    previousDetachOnAttach);
+                if (!BridgeSettingSetUint("Engine", "DetachOnAttach", 1))
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError(
+                        "x64dbg_failed",
+                        "failed to enable Engine.DetachOnAttach for action=attach");
+                    return r;
+                }
+            }
+
+            auto cmd = String::Format(CultureInfo::InvariantCulture, "attach .{0}", pid);
+            std::string nativeCommand = msclr::interop::marshal_as<std::string>(cmd);
+            bool ok = DbgCmdExecDirect(nativeCommand.c_str());
+
+            if (wasDebugging)
+            {
+                bool restored = hadPreviousSetting
+                    ? BridgeSettingSet("Engine", "DetachOnAttach", previousDetachOnAttach)
+                    : BridgeSettingSet("Engine", "DetachOnAttach", nullptr);
+                if (!restored)
+                {
+                    r->Success = false;
+                    r->Error = Helpers::MakeError(
+                        "x64dbg_failed",
+                        "attach command completed but Engine.DetachOnAttach could not be restored");
+                    return r;
+                }
+            }
+
+            if (!ok)
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("x64dbg_failed", "command failed: " + cmd);
+                return r;
+            }
+
+            r->Success = true;
+            r->IsDebugging = DbgIsDebugging();
+            r->IsRunning = r->IsDebugging && DbgIsRunning();
+            return r;
         }
 
         static void AppendQuoted(StringBuilder^ sb, String^ value)

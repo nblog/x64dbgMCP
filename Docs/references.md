@@ -81,7 +81,7 @@ When implementing a `debug_control` action that maps onto a raw command, consult
 
 | Group | URL | Used by |
 |---|---|---|
-| Debug control | [help.x64dbg.com/.../debug-control/index.html](https://help.x64dbg.com/en/latest/commands/debug-control/index.html) | `debug_control{init, stop, run, pause, Step*}` |
+| Debug control | [help.x64dbg.com/.../debug-control/index.html](https://help.x64dbg.com/en/latest/commands/debug-control/index.html) | `debug_control{init, attach, stop, run, pause, Step*}` |
 | Breakpoints | [help.x64dbg.com/.../breakpoint-control/index.html](https://help.x64dbg.com/en/latest/commands/breakpoint-control/index.html) | `breakpoints{...}` |
 | Conditional breakpoints | [help.x64dbg.com/.../conditional-breakpoint-control/index.html](https://help.x64dbg.com/en/latest/commands/conditional-breakpoint-control/index.html) | `breakpoints{set,set_hardware}` condition/log fields |
 | Memory operations | [help.x64dbg.com/.../memory-operations/index.html](https://help.x64dbg.com/en/latest/commands/memory-operations/index.html) | `memory{write, alloc, free}` |
@@ -92,6 +92,9 @@ When implementing a `debug_control` action that maps onto a raw command, consult
 
 - [x64dbg/x64dbg](https://github.com/x64dbg/x64dbg) — main repository
 - [x64dbg pluginsdk source](https://github.com/x64dbg/x64dbg/tree/development/src/dbg/pluginsdk) — authoritative source for pluginsdk headers (compare against vendored copies during SDK upgrades)
+- [Attach dialog at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/gui/Src/Gui/AttachDialog.cpp#L151-L218) — GUI precedent for decimal `attach .<pid>` command construction and detach-on-attach selection
+- [Attach command handler at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/commands/cmd-debug-control.cpp#L246-L334) — reads `Engine/DetachOnAttach`, waits for the old debug loop after detaching, validates access/architecture, and starts the new attach loop
+- [x64dbg help — AttachDebugger/attach](https://help.x64dbg.com/en/latest/commands/debug-control/AttachDebugger.html) — official PID argument and attach-command result semantics
 - [`_dbg_getbplist` at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/_exports.cpp#L749-L804) — `DbgGetBpList(bp_none, ...)` enumerates every breakpoint type and allocates the returned `BPMAP.bp` with `BridgeAlloc`
 - [`BpGetList` at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/breakpoint.cpp#L102-L126) — breakpoint address normalization used by `x64dbg://breakpoints`
 - [`BpToBridgeTypeEx` / `BpToBridge` at the vendored `2026.05.27` release commit](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/breakpoint.cpp#L750-L881) — `BRIDGEBP` field and subtype semantics used by `x64dbg://breakpoints`

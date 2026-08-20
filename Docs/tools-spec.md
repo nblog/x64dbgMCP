@@ -686,10 +686,11 @@ public:
 
 These tools are registered only when `McpServerHost::Start(..., enableDebugging: true)`. The flag limits debugger-domain tool-schema growth; it is not a generic read/write or authorization boundary.
 
-### `debug_control{init, stop, run, pause, Step*, run_command}` 🟢
+### `debug_control{init, attach, stop, run, pause, Step*, run_command}` 🟢
 
 | Action | Params | Notes |
 |---|---|---|
+| `attach` | `{ pid: int, detach2attach?: bool = false }` | Attaches to a positive decimal Windows PID. If a debug session is already active, the call fails before side effects unless `detach2attach=true`; the opt-in path detaches the current debuggee, leaves it running, and then attaches to `pid`. |
 | `stop` | — | Detach/terminate |
 | `run` | — | Returns immediately; does not wait for next pause |
 | `pause` | — | |
@@ -699,9 +700,11 @@ These tools are registered only when `McpServerHost::Start(..., enableDebugging:
 | `init` | `{ exePath: string, cmdLine?: string, curFolder?: string }` | Loads target executable |
 | `run_command` | `{ command: string, wait?: bool }` | Raw x64dbg command; `wait` uses `DbgCmdExecDirect` |
 
+`attach` dispatches x64dbg's `attach .<pid>` command, where the leading dot preserves decimal PID semantics. It uses direct command execution so a `detach2attach=true` call can temporarily force x64dbg's `Engine/DetachOnAttach` behavior for that dispatch and restore the prior setting before returning. The option is call-local and does not persistently change the user's debugger configuration. A successful return means the attach command handler accepted the target and started the attach debug loop; it does not wait for the system breakpoint. Clients should confirm the resulting PID through `x64dbg://process`.
+
 Returns a `DebugControlResult` envelope with the echoed `action` and post-dispatch `isDebugging` / `isRunning` snapshot. `commandOutput` is reserved in the current result class but is not populated by the implementation; `run_command` reports command acceptance, not captured console output.
 
-Errors: `invalid_argument` (unknown action or missing action-specific parameter), `not_attached` (session action without a debuggee), `x64dbg_failed` (x64dbg rejected the dispatched command).
+Errors: `invalid_argument` (unknown action, missing/zero `pid`, missing action-specific parameter, or `attach` attempted during an active session without `detach2attach=true`), `not_attached` (session action without a debuggee), `x64dbg_failed` (x64dbg rejected the dispatched command or the temporary detach-on-attach setting could not be applied/restored).
 
 ### `breakpoints{get, set, set_hardware, disable, delete}` 🟢
 
