@@ -2,13 +2,16 @@
 
 #include "plugintemplate/pluginmain.h"
 #include "plugintemplate/pluginsdk/lz4/lz4.h"
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <future>
 #include <msclr/marshal.h>
 #include <msclr/marshal_cppstd.h>
 #include <mutex>
+#include <objidl.h>
 #include <string>
+#include <wincodec.h>
 #include <winternl.h>
 #include <vector>
 
@@ -24,6 +27,7 @@ namespace x64dbgMCP {
     using namespace System::Globalization;
     using namespace System::IO;
     using namespace System::Runtime::InteropServices;
+    using namespace System::Security::Cryptography;
     using namespace System::Text;
     using namespace System::Text::Json;
     using namespace System::Text::Json::Serialization;
@@ -769,6 +773,135 @@ namespace x64dbgMCP {
         property int CompressedSize;
     };
 
+    public ref class DebugGUIRange
+    {
+    public:
+        [JsonPropertyName("start")]
+        property String^ Start;
+
+        [JsonPropertyName("end")]
+        property String^ End;
+    };
+
+    public ref class DebugGUIArtifact
+    {
+    public:
+        [JsonPropertyName("type")]
+        property String^ Type;
+
+        [JsonPropertyName("mimeType")]
+        property String^ MimeType;
+
+        [JsonPropertyName("path")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property String^ Path;
+    };
+
+    public ref class DebugGUISnapshotData
+    {
+    public:
+        [JsonPropertyName("action")]
+        property String^ Action;
+
+        [JsonPropertyName("artifact")]
+        property DebugGUIArtifact^ Artifact;
+
+        [JsonPropertyName("capturedAtUtc")]
+        property String^ CapturedAtUtc;
+
+        [JsonPropertyName("width")]
+        property int Width;
+
+        [JsonPropertyName("height")]
+        property int Height;
+
+        [JsonPropertyName("sha256")]
+        property String^ Sha256;
+
+        [JsonPropertyName("windowTitle")]
+        property String^ WindowTitle;
+
+        [JsonPropertyName("debuggeeProcessId")]
+        property int DebuggeeProcessId;
+    };
+
+    public ref class DebugGUISnapshotResult : McpResult
+    {
+    public:
+        [JsonPropertyName("data")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property DebugGUISnapshotData^ Data;
+    };
+
+    public ref class DebugGUIFocusData
+    {
+    public:
+        [JsonPropertyName("action")]
+        property String^ Action;
+
+        [JsonPropertyName("window")]
+        property String^ Window;
+
+        [JsonPropertyName("refreshed")]
+        property bool Refreshed;
+    };
+
+    public ref class DebugGUIFocusResult : McpResult
+    {
+    public:
+        [JsonPropertyName("data")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property DebugGUIFocusData^ Data;
+    };
+
+    public ref class DebugGUIGetData
+    {
+    public:
+        [JsonPropertyName("action")]
+        property String^ Action;
+
+        [JsonPropertyName("window")]
+        property String^ Window;
+
+        [JsonPropertyName("selection")]
+        property DebugGUIRange^ Selection;
+    };
+
+    public ref class DebugGUIGetResult : McpResult
+    {
+    public:
+        [JsonPropertyName("data")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property DebugGUIGetData^ Data;
+    };
+
+    public ref class DebugGUISetData
+    {
+    public:
+        [JsonPropertyName("action")]
+        property String^ Action;
+
+        [JsonPropertyName("window")]
+        property String^ Window;
+
+        [JsonPropertyName("requested")]
+        property DebugGUIRange^ Requested;
+
+        [JsonPropertyName("actual")]
+        property DebugGUIRange^ Actual;
+
+        [JsonPropertyName("refreshed")]
+        property bool Refreshed;
+    };
+
+    public ref class DebugGUISetResult : McpResult
+    {
+    public:
+        [JsonPropertyName("data")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property DebugGUISetData^ Data;
+    };
+
     public ref class DebugControlResult : McpResult
     {
     public:
@@ -847,6 +980,476 @@ namespace x64dbgMCP {
     };
 
 #pragma unmanaged
+    enum class DebugGUIWorkAction
+    {
+        Snapshot,
+        Focus,
+        Get,
+        Set
+    };
+
+    enum class DebugGUIFailure
+    {
+        None,
+        NotAttached,
+        NotFound,
+        X64dbgFailed
+    };
+
+    struct DebugGUIContext
+    {
+        std::atomic<int> references{ 2 };
+        DebugGUIWorkAction action = DebugGUIWorkAction::Snapshot;
+        GUISELECTIONTYPE selectionWindow = GUI_DISASSEMBLY;
+        Script::Gui::Window scriptWindow = Script::Gui::DisassemblyWindow;
+        duint requestedStart = 0;
+        duint requestedEnd = 0;
+        duint actualStart = 0;
+        duint actualEnd = 0;
+        int width = 0;
+        int height = 0;
+        DWORD debuggeeProcessId = 0;
+        FILETIME capturedAtUtc{};
+        std::wstring windowTitle;
+        std::vector<unsigned char> png;
+        DebugGUIFailure failure = DebugGUIFailure::None;
+        std::string error;
+        bool success = false;
+        std::promise<void> completion;
+
+        void Release()
+        {
+            if (references.fetch_sub(1) == 1)
+                delete this;
+        }
+    };
+
+    struct WindowBitmap
+    {
+        HWND window = nullptr;
+        HDC windowDc = nullptr;
+        HDC memoryDc = nullptr;
+        HBITMAP bitmap = nullptr;
+        HGDIOBJ previousBitmap = nullptr;
+        void* bits = nullptr;
+
+        ~WindowBitmap()
+        {
+            if (memoryDc && previousBitmap && previousBitmap != HGDI_ERROR)
+                SelectObject(memoryDc, previousBitmap);
+            if (bitmap)
+                DeleteObject(bitmap);
+            if (memoryDc)
+                DeleteDC(memoryDc);
+            if (windowDc)
+                ReleaseDC(window, windowDc);
+        }
+    };
+
+    struct ComApartmentScope
+    {
+        bool uninitialize = false;
+
+        ~ComApartmentScope()
+        {
+            if (uninitialize)
+                CoUninitialize();
+        }
+    };
+
+    template <typename T>
+    struct NativeComPtr
+    {
+        T* value = nullptr;
+
+        NativeComPtr() = default;
+
+        ~NativeComPtr()
+        {
+            if (value)
+                value->Release();
+        }
+
+        T* Get() const
+        {
+            return value;
+        }
+
+        T** Address()
+        {
+            return &value;
+        }
+
+        T* operator->() const
+        {
+            return value;
+        }
+
+        NativeComPtr(const NativeComPtr&) = delete;
+        NativeComPtr& operator=(const NativeComPtr&) = delete;
+    };
+
+    static std::string DebugGUIHResult(const char* operation, HRESULT result)
+    {
+        char buffer[128]{};
+        sprintf_s(buffer, "%s failed with HRESULT 0x%08X", operation, (unsigned int)result);
+        return buffer;
+    }
+
+    static bool EncodeWindowBitmapAsPng(
+        const void* bits,
+        int width,
+        int height,
+        std::vector<unsigned char>& png,
+        std::string& error)
+    {
+        HRESULT initializeResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        ComApartmentScope apartment;
+        apartment.uninitialize = SUCCEEDED(initializeResult);
+        if (FAILED(initializeResult) && initializeResult != RPC_E_CHANGED_MODE)
+        {
+            error = DebugGUIHResult("CoInitializeEx", initializeResult);
+            return false;
+        }
+
+        NativeComPtr<IWICImagingFactory> factory;
+        HRESULT result = CoCreateInstance(
+            CLSID_WICImagingFactory,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(factory.Address()));
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("CoCreateInstance(CLSID_WICImagingFactory)", result);
+            return false;
+        }
+
+        NativeComPtr<IStream> stream;
+        result = CreateStreamOnHGlobal(nullptr, TRUE, stream.Address());
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("CreateStreamOnHGlobal", result);
+            return false;
+        }
+
+        NativeComPtr<IWICBitmapEncoder> encoder;
+        result = factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, encoder.Address());
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("IWICImagingFactory::CreateEncoder", result);
+            return false;
+        }
+        result = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("IWICBitmapEncoder::Initialize", result);
+            return false;
+        }
+
+        NativeComPtr<IWICBitmapFrameEncode> frame;
+        result = encoder->CreateNewFrame(frame.Address(), nullptr);
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("IWICBitmapEncoder::CreateNewFrame", result);
+            return false;
+        }
+        result = frame->Initialize(nullptr);
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("IWICBitmapFrameEncode::Initialize", result);
+            return false;
+        }
+        result = frame->SetSize((UINT)width, (UINT)height);
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("IWICBitmapFrameEncode::SetSize", result);
+            return false;
+        }
+
+        WICPixelFormatGUID pixelFormat = GUID_WICPixelFormat32bppBGRA;
+        result = frame->SetPixelFormat(&pixelFormat);
+        if (FAILED(result) || !IsEqualGUID(pixelFormat, GUID_WICPixelFormat32bppBGRA))
+        {
+            error = FAILED(result)
+                ? DebugGUIHResult("IWICBitmapFrameEncode::SetPixelFormat", result)
+                : "PNG encoder did not accept 32bpp BGRA pixels";
+            return false;
+        }
+
+        if ((unsigned long long)width * (unsigned long long)height * 4 > UINT_MAX)
+        {
+            error = "x64dbg capture bitmap exceeds the WIC input-size limit";
+            return false;
+        }
+        UINT stride = (UINT)width * 4;
+        UINT bufferSize = stride * (UINT)height;
+        result = frame->WritePixels(
+            (UINT)height,
+            stride,
+            bufferSize,
+            const_cast<BYTE*>(static_cast<const BYTE*>(bits)));
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("IWICBitmapFrameEncode::WritePixels", result);
+            return false;
+        }
+        result = frame->Commit();
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("IWICBitmapFrameEncode::Commit", result);
+            return false;
+        }
+        result = encoder->Commit();
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("IWICBitmapEncoder::Commit", result);
+            return false;
+        }
+
+        STATSTG statistics{};
+        result = stream->Stat(&statistics, STATFLAG_NONAME);
+        if (FAILED(result) || statistics.cbSize.HighPart != 0 || statistics.cbSize.LowPart == 0)
+        {
+            error = FAILED(result)
+                ? DebugGUIHResult("IStream::Stat", result)
+                : "PNG stream size was invalid";
+            return false;
+        }
+
+        LARGE_INTEGER beginning{};
+        result = stream->Seek(beginning, STREAM_SEEK_SET, nullptr);
+        if (FAILED(result))
+        {
+            error = DebugGUIHResult("IStream::Seek", result);
+            return false;
+        }
+
+        png.resize(statistics.cbSize.LowPart);
+        ULONG totalRead = 0;
+        while (totalRead < png.size())
+        {
+            ULONG read = 0;
+            ULONG remaining = (ULONG)png.size() - totalRead;
+            result = stream->Read(png.data() + totalRead, remaining, &read);
+            if (FAILED(result) || read == 0)
+            {
+                error = FAILED(result)
+                    ? DebugGUIHResult("IStream::Read", result)
+                    : "PNG stream ended before its reported size";
+                png.clear();
+                return false;
+            }
+            totalRead += read;
+        }
+        return true;
+    }
+
+    static bool CaptureMainWindowPng(DebugGUIContext* context)
+    {
+        HWND window = GuiGetWindowHandle();
+        if (!window || !IsWindow(window))
+        {
+            context->error = "GuiGetWindowHandle returned no valid x64dbg window";
+            return false;
+        }
+
+        RECT bounds{};
+        if (!GetWindowRect(window, &bounds))
+        {
+            context->error = "GetWindowRect failed for the x64dbg main window";
+            return false;
+        }
+        int width = bounds.right - bounds.left;
+        int height = bounds.bottom - bounds.top;
+        if (width <= 0 || height <= 0 || width > 32768 || height > 32768)
+        {
+            context->error = "x64dbg main-window dimensions were invalid";
+            return false;
+        }
+
+        WindowBitmap capture;
+        capture.window = window;
+        capture.windowDc = GetWindowDC(window);
+        if (!capture.windowDc)
+        {
+            context->error = "GetWindowDC failed for the x64dbg main window";
+            return false;
+        }
+        capture.memoryDc = CreateCompatibleDC(capture.windowDc);
+        if (!capture.memoryDc)
+        {
+            context->error = "CreateCompatibleDC failed for the x64dbg main window";
+            return false;
+        }
+
+        BITMAPINFO bitmapInfo{};
+        bitmapInfo.bmiHeader.biSize = sizeof(bitmapInfo.bmiHeader);
+        bitmapInfo.bmiHeader.biWidth = width;
+        bitmapInfo.bmiHeader.biHeight = -height;
+        bitmapInfo.bmiHeader.biPlanes = 1;
+        bitmapInfo.bmiHeader.biBitCount = 32;
+        bitmapInfo.bmiHeader.biCompression = BI_RGB;
+        capture.bitmap = CreateDIBSection(
+            capture.windowDc,
+            &bitmapInfo,
+            DIB_RGB_COLORS,
+            &capture.bits,
+            nullptr,
+            0);
+        if (!capture.bitmap || !capture.bits)
+        {
+            context->error = "CreateDIBSection failed for the x64dbg main window";
+            return false;
+        }
+        capture.previousBitmap = SelectObject(capture.memoryDc, capture.bitmap);
+        if (!capture.previousBitmap || capture.previousBitmap == HGDI_ERROR)
+        {
+            context->error = "SelectObject failed for the x64dbg capture bitmap";
+            return false;
+        }
+
+        if (!PrintWindow(window, capture.memoryDc, PW_RENDERFULLCONTENT))
+        {
+            context->error = "PrintWindow failed for the x64dbg main window";
+            return false;
+        }
+        GdiFlush();
+
+        DWORD* pixels = static_cast<DWORD*>(capture.bits);
+        size_t pixelCount = (size_t)width * (size_t)height;
+        DWORD first = pixels[0] & 0x00FFFFFF;
+        bool hasVariation = false;
+        for (size_t i = 1; i < pixelCount; i++)
+        {
+            if ((pixels[i] & 0x00FFFFFF) != first)
+            {
+                hasVariation = true;
+                break;
+            }
+        }
+        if (!hasVariation)
+        {
+            context->error = "PrintWindow produced a uniform image";
+            return false;
+        }
+
+        // BI_RGB leaves the high byte undefined; PNG BGRA requires explicit opacity.
+        for (size_t i = 0; i < pixelCount; i++)
+            pixels[i] |= 0xFF000000;
+
+        if (!EncodeWindowBitmapAsPng(
+            capture.bits,
+            width,
+            height,
+            context->png,
+            context->error))
+            return false;
+
+        int titleLength = GetWindowTextLengthW(window);
+        std::vector<wchar_t> title((size_t)titleLength + 1, L'\0');
+        if (titleLength > 0)
+            GetWindowTextW(window, title.data(), titleLength + 1);
+
+        context->width = width;
+        context->height = height;
+        context->windowTitle.assign(title.data());
+        context->debuggeeProcessId = DbgIsDebugging() ? DbgGetProcessId() : 0;
+        GetSystemTimeAsFileTime(&context->capturedAtUtc);
+        return true;
+    }
+
+    static void ExecuteDebugGUIOnGuiThread(void* userData)
+    {
+        auto context = static_cast<DebugGUIContext*>(userData);
+        try
+        {
+            if (context->action != DebugGUIWorkAction::Snapshot && !DbgIsDebugging())
+            {
+                context->failure = DebugGUIFailure::NotAttached;
+                context->error = "no active debug session";
+            }
+            else if (context->action == DebugGUIWorkAction::Snapshot)
+            {
+                Script::Gui::Refresh();
+                GuiProcessEvents();
+                context->success = CaptureMainWindowPng(context);
+                if (!context->success)
+                    context->failure = DebugGUIFailure::X64dbgFailed;
+            }
+            else if (context->action == DebugGUIWorkAction::Focus)
+            {
+                GuiShowCpu();
+                GuiProcessEvents();
+                GuiFocusView(context->selectionWindow);
+                Script::Gui::Refresh();
+                GuiProcessEvents();
+                context->success = true;
+            }
+            else if (context->action == DebugGUIWorkAction::Get)
+            {
+                context->success = Script::Gui::SelectionGet(
+                    context->scriptWindow,
+                    &context->actualStart,
+                    &context->actualEnd);
+                if (!context->success)
+                {
+                    context->failure = DebugGUIFailure::X64dbgFailed;
+                    context->error = "failed to read the x64dbg GUI selection";
+                }
+            }
+            else
+            {
+                GuiShowCpu();
+                switch (context->selectionWindow)
+                {
+                case GUI_DISASSEMBLY:
+                    GuiDisasmAt(context->requestedStart, DbgValFromString("cip"));
+                    break;
+                case GUI_DUMP:
+                    GuiDumpAt(context->requestedStart);
+                    break;
+                case GUI_STACK:
+                    GuiStackDumpAt(context->requestedStart, DbgValFromString("csp"));
+                    break;
+                }
+                GuiProcessEvents();
+
+                if (!Script::Gui::SelectionSet(
+                    context->scriptWindow,
+                    context->requestedStart,
+                    context->requestedEnd))
+                {
+                    context->failure = DebugGUIFailure::NotFound;
+                    context->error = "requested range is outside the selected pane's addressable page";
+                }
+                else
+                {
+                    GuiFocusView(context->selectionWindow);
+                    Script::Gui::Refresh();
+                    GuiProcessEvents();
+                    context->success = Script::Gui::SelectionGet(
+                        context->scriptWindow,
+                        &context->actualStart,
+                        &context->actualEnd);
+                    if (!context->success)
+                    {
+                        context->failure = DebugGUIFailure::X64dbgFailed;
+                        context->error = "selection was set but readback failed";
+                    }
+                }
+            }
+        }
+        catch (...)
+        {
+            context->success = false;
+            context->failure = DebugGUIFailure::X64dbgFailed;
+            context->error = "unexpected failure on the x64dbg GUI thread";
+        }
+
+        context->completion.set_value();
+        context->Release();
+    }
+
     struct LogSaveContext
     {
         std::string path;
@@ -1671,7 +2274,7 @@ namespace x64dbgMCP {
                 auto args = gcnew Dictionary<String^, Object^>();
                 args["addr"] = info->Entry;
                 args["count"] = 30;
-                info->Links["entry_disasm"] = Helpers::ToolLink("Disassemble", args);
+                info->Links["entry_disasm"] = Helpers::ToolLink("disassemble", args);
             }
             return info;
         }
@@ -2162,6 +2765,143 @@ namespace x64dbgMCP {
 
         [McpServerTool]
         [Description(
+            "Capture x64dbg GUI evidence and control CPU-pane focus or selections. Actions:\n"
+            "  snapshot : { save_path? } -- capture the complete x64dbg main window as PNG\n"
+            "  focus    : { window? } -- activate CPU, focus Disassembly/Dump/Stack, refresh, and flush GUI events\n"
+            "  set      : { window, start, end? } -- navigate, select, focus, refresh, flush, and read back the actual range\n"
+            "  get      : { window } -- read the pane's inclusive selection without changing it"
+        )]
+        static Object^ DebugGUI(
+            [Description("Action: \"snapshot\" | \"focus\" | \"get\" | \"set\"")]
+            String^ action,
+            [Description("CPU pane: \"Disassembly\" | \"Dump\" | \"Stack\"; optional for focus, required for get/set")]
+            [DefaultValue("")]
+            String^ window,
+            [Description("Start address or x64dbg expression (required for action=set)")]
+            [DefaultValue("")]
+            String^ start,
+            [Description("Inclusive end address or x64dbg expression (action=set); omission means end=start")]
+            [DefaultValue("")]
+            String^ end,
+            [Description("Absolute host path to a new .png file (action=snapshot); omission returns an inline image")]
+            [DefaultValue("")]
+            String^ save_path)
+        {
+            if (action == "snapshot")
+                return SnapshotAction(save_path);
+
+            if (action != "focus" && action != "get" && action != "set")
+            {
+                auto result = gcnew McpResult();
+                result->Success = false;
+                result->Error = Helpers::MakeError(
+                    "invalid_argument",
+                    "unknown action: " + (action ? action : "<null>") + "; expected snapshot|focus|get|set");
+                return result;
+            }
+
+            if (!DbgIsDebugging())
+                return DebugGUIError(action, "not_attached", "no active debug session");
+
+            String^ canonicalWindow = window;
+            if (action == "focus" && String::IsNullOrEmpty(canonicalWindow))
+                canonicalWindow = "Disassembly";
+            if (String::IsNullOrEmpty(canonicalWindow))
+                return DebugGUIError(action, "invalid_argument", "window is required for action=" + action);
+
+            GUISELECTIONTYPE selectionWindow;
+            Script::Gui::Window scriptWindow;
+            if (!TryMapDebugGUIWindow(canonicalWindow, &selectionWindow, &scriptWindow))
+            {
+                return DebugGUIError(
+                    action,
+                    "invalid_argument",
+                    "window must be one of Disassembly|Dump|Stack");
+            }
+
+            duint requestedStart = 0;
+            duint requestedEnd = 0;
+            if (action == "set")
+            {
+                if (String::IsNullOrEmpty(start))
+                    return DebugGUIError(action, "invalid_argument", "start is required for action=set");
+                if (!Helpers::ResolveExpression(start, requestedStart))
+                    return DebugGUIError(action, "not_found", "could not resolve start expression: " + start);
+
+                if (String::IsNullOrEmpty(end))
+                {
+                    requestedEnd = requestedStart;
+                }
+                else if (!Helpers::ResolveExpression(end, requestedEnd))
+                {
+                    return DebugGUIError(action, "not_found", "could not resolve end expression: " + end);
+                }
+                if (requestedEnd < requestedStart)
+                    return DebugGUIError(action, "invalid_argument", "end must resolve to an address greater than or equal to start");
+            }
+
+            auto context = new DebugGUIContext();
+            context->action = action == "focus"
+                ? DebugGUIWorkAction::Focus
+                : action == "get" ? DebugGUIWorkAction::Get : DebugGUIWorkAction::Set;
+            context->selectionWindow = selectionWindow;
+            context->scriptWindow = scriptWindow;
+            context->requestedStart = requestedStart;
+            context->requestedEnd = requestedEnd;
+
+            if (!RunDebugGUIContext(context))
+            {
+                context->Release();
+                return DebugGUIError(action, "x64dbg_failed", "timed out waiting for the x64dbg GUI thread");
+            }
+
+            if (!context->success)
+            {
+                String^ code = DebugGUIFailureCode(context->failure);
+                String^ message = gcnew String(context->error.c_str());
+                context->Release();
+                return DebugGUIError(action, code, message);
+            }
+
+            if (action == "focus")
+            {
+                context->Release();
+                auto result = gcnew DebugGUIFocusResult();
+                result->Success = true;
+                result->Data = gcnew DebugGUIFocusData();
+                result->Data->Action = "focus";
+                result->Data->Window = canonicalWindow;
+                result->Data->Refreshed = true;
+                return result;
+            }
+
+            duint actualStart = context->actualStart;
+            duint actualEnd = context->actualEnd;
+            context->Release();
+            if (action == "get")
+            {
+                auto result = gcnew DebugGUIGetResult();
+                result->Success = true;
+                result->Data = gcnew DebugGUIGetData();
+                result->Data->Action = "get";
+                result->Data->Window = canonicalWindow;
+                result->Data->Selection = MakeDebugGUIRange(actualStart, actualEnd);
+                return result;
+            }
+
+            auto result = gcnew DebugGUISetResult();
+            result->Success = true;
+            result->Data = gcnew DebugGUISetData();
+            result->Data->Action = "set";
+            result->Data->Window = canonicalWindow;
+            result->Data->Requested = MakeDebugGUIRange(requestedStart, requestedEnd);
+            result->Data->Actual = MakeDebugGUIRange(actualStart, actualEnd);
+            result->Data->Refreshed = true;
+            return result;
+        }
+
+        [McpServerTool]
+        [Description(
             "Registers control. Actions:\n"
             "  get  : { name } -> { name, value }       — name is any x64dbg-known register/flag (rax, eip, zf, r8d, _zf...).\n"
             "  set  : { name, value } -> { name, value, previous } — value accepts any x64dbg expression.\n"
@@ -2250,6 +2990,233 @@ namespace x64dbgMCP {
         }
 
     private:
+        static Object^ SnapshotAction(String^ savePath)
+        {
+            String^ normalizedPath = nullptr;
+            String^ pathError = nullptr;
+            if (!ValidateDebugGUISnapshotPath(savePath, normalizedPath, pathError))
+            {
+                auto result = gcnew DebugGUISnapshotResult();
+                result->Success = false;
+                result->Error = Helpers::MakeError("invalid_argument", pathError);
+                return result;
+            }
+
+            auto context = new DebugGUIContext();
+            context->action = DebugGUIWorkAction::Snapshot;
+            if (!RunDebugGUIContext(context))
+            {
+                context->Release();
+                auto result = gcnew DebugGUISnapshotResult();
+                result->Success = false;
+                result->Error = Helpers::MakeError("x64dbg_failed", "timed out waiting for the x64dbg GUI thread");
+                return result;
+            }
+            if (!context->success)
+            {
+                String^ message = gcnew String(context->error.c_str());
+                context->Release();
+                auto result = gcnew DebugGUISnapshotResult();
+                result->Success = false;
+                result->Error = Helpers::MakeError("x64dbg_failed", message);
+                return result;
+            }
+
+            if (context->png.size() > Int32::MaxValue)
+            {
+                context->Release();
+                auto result = gcnew DebugGUISnapshotResult();
+                result->Success = false;
+                result->Error = Helpers::MakeError("x64dbg_failed", "captured PNG exceeds the supported result size");
+                return result;
+            }
+
+            auto png = gcnew array<Byte>((int)context->png.size());
+            if (png->Length > 0)
+                Marshal::Copy(IntPtr(context->png.data()), png, 0, png->Length);
+            int width = context->width;
+            int height = context->height;
+            int processId = (int)context->debuggeeProcessId;
+            FILETIME capturedAt = context->capturedAtUtc;
+            String^ windowTitle = gcnew String(context->windowTitle.c_str());
+            context->Release();
+
+            if (normalizedPath != nullptr)
+            {
+                try
+                {
+                    FileStream^ stream = gcnew FileStream(
+                        normalizedPath,
+                        FileMode::CreateNew,
+                        FileAccess::Write,
+                        FileShare::None);
+                    try
+                    {
+                        stream->Write(png, 0, png->Length);
+                        stream->Flush(true);
+                    }
+                    finally
+                    {
+                        delete stream;
+                    }
+                }
+                catch (Exception^ exception)
+                {
+                    try
+                    {
+                        if (File::Exists(normalizedPath))
+                            File::Delete(normalizedPath);
+                    }
+                    catch (...) {}
+
+                    auto result = gcnew DebugGUISnapshotResult();
+                    result->Success = false;
+                    result->Error = Helpers::MakeError(
+                        "io_failed",
+                        "failed to write PNG file: " + exception->Message);
+                    return result;
+                }
+            }
+
+            auto result = gcnew DebugGUISnapshotResult();
+            result->Success = true;
+            result->Data = gcnew DebugGUISnapshotData();
+            result->Data->Action = "snapshot";
+            result->Data->Artifact = gcnew DebugGUIArtifact();
+            result->Data->Artifact->Type = normalizedPath == nullptr ? "image" : "file";
+            result->Data->Artifact->MimeType = "image/png";
+            result->Data->Artifact->Path = normalizedPath;
+            result->Data->CapturedAtUtc = Helpers::FormatFileTimeUtc(capturedAt);
+            result->Data->Width = width;
+            result->Data->Height = height;
+            result->Data->Sha256 = Convert::ToHexString(SHA256::HashData(png));
+            result->Data->WindowTitle = windowTitle;
+            result->Data->DebuggeeProcessId = processId;
+
+            if (normalizedPath != nullptr)
+                return result;
+
+            auto content = gcnew List<ContentBlock^>();
+            auto textBlock = gcnew TextContentBlock();
+            textBlock->Text = JsonSerializer::Serialize<DebugGUISnapshotResult^>(result);
+            content->Add(textBlock);
+            ReadOnlyMemory<Byte> imageData(png);
+            content->Add(ImageContentBlock::FromBytes(imageData, "image/png"));
+
+            auto callResult = gcnew CallToolResult();
+            callResult->Content = content;
+            return callResult;
+        }
+
+        static bool ValidateDebugGUISnapshotPath(
+            String^ savePath,
+            [Out] String^% normalizedPath,
+            [Out] String^% error)
+        {
+            normalizedPath = nullptr;
+            error = nullptr;
+            if (String::IsNullOrEmpty(savePath))
+                return true;
+
+            try
+            {
+                if (!Path::IsPathFullyQualified(savePath))
+                {
+                    error = "save_path must be an absolute host path";
+                    return false;
+                }
+                if (!String::Equals(Path::GetExtension(savePath), ".png", StringComparison::OrdinalIgnoreCase))
+                {
+                    error = "save_path must end with .png";
+                    return false;
+                }
+
+                normalizedPath = Path::GetFullPath(savePath);
+                String^ parent = Path::GetDirectoryName(normalizedPath);
+                if (String::IsNullOrEmpty(parent) || !Directory::Exists(parent))
+                {
+                    error = "save_path parent directory must already exist";
+                    return false;
+                }
+                if (File::Exists(normalizedPath) || Directory::Exists(normalizedPath))
+                {
+                    error = "save_path already exists and will not be overwritten";
+                    return false;
+                }
+                return true;
+            }
+            catch (Exception^ exception)
+            {
+                normalizedPath = nullptr;
+                error = "invalid save_path: " + exception->Message;
+                return false;
+            }
+        }
+
+        static bool TryMapDebugGUIWindow(
+            String^ window,
+            GUISELECTIONTYPE* selectionWindow,
+            Script::Gui::Window* scriptWindow)
+        {
+            if (String::Equals(window, "Disassembly", StringComparison::Ordinal))
+            {
+                *selectionWindow = GUI_DISASSEMBLY;
+                *scriptWindow = Script::Gui::DisassemblyWindow;
+                return true;
+            }
+            if (String::Equals(window, "Dump", StringComparison::Ordinal))
+            {
+                *selectionWindow = GUI_DUMP;
+                *scriptWindow = Script::Gui::DumpWindow;
+                return true;
+            }
+            if (String::Equals(window, "Stack", StringComparison::Ordinal))
+            {
+                *selectionWindow = GUI_STACK;
+                *scriptWindow = Script::Gui::StackWindow;
+                return true;
+            }
+            return false;
+        }
+
+        static bool RunDebugGUIContext(DebugGUIContext* context)
+        {
+            std::future<void> completion = context->completion.get_future();
+            GuiExecuteOnGuiThreadEx(ExecuteDebugGUIOnGuiThread, context);
+            if (completion.wait_for(std::chrono::seconds(5)) != std::future_status::ready)
+                return false;
+            return true;
+        }
+
+        static String^ DebugGUIFailureCode(DebugGUIFailure failure)
+        {
+            switch (failure)
+            {
+            case DebugGUIFailure::NotAttached: return "not_attached";
+            case DebugGUIFailure::NotFound: return "not_found";
+            default: return "x64dbg_failed";
+            }
+        }
+
+        static Object^ DebugGUIError(String^ action, String^ code, String^ message)
+        {
+            McpResult^ result;
+            if (action == "focus") result = gcnew DebugGUIFocusResult();
+            else if (action == "get") result = gcnew DebugGUIGetResult();
+            else result = gcnew DebugGUISetResult();
+            result->Success = false;
+            result->Error = Helpers::MakeError(code, message);
+            return result;
+        }
+
+        static DebugGUIRange^ MakeDebugGUIRange(duint start, duint end)
+        {
+            auto range = gcnew DebugGUIRange();
+            range->Start = Helpers::FormatAddress(start);
+            range->End = Helpers::FormatAddress(end);
+            return range;
+        }
+
         static BreakpointResult^ BreakpointAction(
             String^ action,
             String^ addr,

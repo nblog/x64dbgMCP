@@ -2,7 +2,7 @@
 
 本文件是开发完成度与验证边界的唯一来源。根级 [`README.md`](../README.md) 按最终产品能力描述；目标契约以 [`tools-spec.md`](tools-spec.md) 为准；本文件只回答“代码现在实现了什么、验证到了哪一步、还差什么”。`tools-spec.md` 中的 🟢/🟡/⚪ 表示契约成熟度，不表示代码完成度。
 
-> Snapshot: 2026-08-20，base HEAD `652610e`；最近一次双架构 live MCP 验收完成于 2026-08-09，`disassemble` import 符号化、breakpoints Resource 与 `memory{action:"read"}` 迁移的 x64 专项验收完成于 2026-08-14；breakpoints Tool 的首批 mutation 与统一 `get/disable/delete` 于 2026-08-17 完成 x64 live MCP 专项验收和 x86 build-only 验证；`debug_control{action:"attach"}`、Resource namespace migration 与 attach candidates 于 2026-08-20 分别完成 x64 live MCP + NtObjectManager 闭环和 x86 build-only 验证。`DebugGUI` 于 2026-08-20 仅完成 ADR/目标契约，尚未实现或验证。统计先以实时 MCP `tools/list`、`resources/list`、`resources/templates/list` 为准，再与 `x64dbgMCP/x64dbgHandler.h` 中的注册和实现交叉核对；不是从根级 README 的产品清单反推。
+> Snapshot: 2026-08-20，base HEAD `652610e`；最近一次双架构 live MCP 验收完成于 2026-08-09，`disassemble` import 符号化、breakpoints Resource 与 `memory{action:"read"}` 迁移的 x64 专项验收完成于 2026-08-14；breakpoints Tool 的首批 mutation 与统一 `get/disable/delete` 于 2026-08-17 完成 x64 live MCP 专项验收和 x86 build-only 验证；`debug_control{action:"attach"}`、Resource namespace migration 与 attach candidates 于 2026-08-20 分别完成 x64 live MCP + NtObjectManager 闭环和 x86 build-only 验证。`DebugGUI` 已实现并完成 x64 live MCP 验收，x86 已完成构建与部署检查；三类 CPU pane 的 x86 GUI 行为仍待 live 验收。统计先以实时 MCP `tools/list`、`resources/list`、`resources/templates/list` 为准，再与 `x64dbgMCP/x64dbgHandler.h` 中的注册和实现交叉核对；不是从根级 README 的产品清单反推。
 
 ## Coverage
 
@@ -14,8 +14,8 @@
 | **All Resources** | **20** | **15** | **5** |
 | Always-registered rich-param Tools | 5 | 1 | 4 |
 | Analysis action-mega Tools | 6 | 0 | 6 |
-| Debugger-domain Tools | 8 | 5 | 3 |
-| **All Tools** | **19** | **6** | **13** |
+| Debugger-domain Tools | 8 | 6 | 2 |
+| **All Tools** | **19** | **7** | **12** |
 
 ### Runtime catalog
 
@@ -25,15 +25,15 @@
 
 尚未注册的 5 个 reserved Resources 为：`x64dbg://symbols`、`x64dbg://functions`、`x64dbg://labels`、`x64dbg://comments`、`x64dbg://bookmarks`。
 
-实时 `tools/list` 返回 6 个 MCP-visible Tools：常驻的 `disassemble`，以及由调试领域目录门控的 `debug_control`、`breakpoints`、`registers`、`memory`、`logging`。`debug_control` 当前在既有 control cluster 中公开 `attach`，平铺参数为 `pid:int` 与 `detach2attach:bool=false`。`breakpoints` 当前公开 `get`、`set`、`set_hardware`、`disable`、`delete`；`get/disable/delete` 以可选 `kind=normal|hardware` 处理同址双断点歧义，旧 `delete_hardware` 已移除。独立 `memory_read` 已从目录移除，`memory` 当前只公开 `read` action。action-mega Tool 的输入 Schema 均直接保留各 action 的平铺参数，没有嵌套 `params`。C++/CLI 方法使用 `PascalCase`，MCP C# SDK 2.1.0 默认把它们派生为上述 `snake_case` wire names。
+实时 `tools/list` 返回 7 个 MCP-visible Tools：常驻的 `disassemble`，以及由调试领域目录门控的 `debug_control`、`breakpoints`、`registers`、`memory`、`logging`、`debug_gui`。`debug_control` 当前在既有 control cluster 中公开 `attach`，平铺参数为 `pid:int` 与 `detach2attach:bool=false`。`breakpoints` 当前公开 `get`、`set`、`set_hardware`、`disable`、`delete`；`get/disable/delete` 以可选 `kind=normal|hardware` 处理同址双断点歧义，旧 `delete_hardware` 已移除。独立 `memory_read` 已从目录移除，`memory` 当前只公开 `read` action。action-mega Tool 的输入 Schema 均直接保留各 action 的平铺参数，没有嵌套 `params`。C++/CLI 方法使用 `PascalCase`，MCP C# SDK 2.1.0 默认把它们派生为上述 `snake_case` wire names。
 
-其余 13 个目标 Tool definitions 尚未实现：常驻 rich-param 的 `find_pattern`、`parse_expression`、`get_string_at`、`get_call_stack`；分析 action-mega 的 `symbols`、`functions`、`labels`、`comments`、`bookmarks`、`xrefs`；调试领域的 `threads`、`assemble`、`debug_gui`。`debug_gui` 的 managed 方法名已定为 `DebugGUI`，SDK 派生的 MCP wire name 为 `debug_gui`；其 `snapshot/focus/get/set` 仅是 [ADR-006](adr/006-debug-gui-evidence-capture.md) 和 [tools-spec.md](tools-spec.md#debug-gui) 中的目标契约。`breakpoints` 的 `set_batch`、`delete_batch` 与 `memory` 的 `write`、`alloc`、`free` 仍是 action 级缺口，不重复计为缺失 Tool definitions。寄存器批量读取已由 `registers{action:"dump"}` 实现，契约不再重复保留 `get_register_dump`。
+其余 12 个目标 Tool definitions 尚未实现：常驻 rich-param 的 `find_pattern`、`parse_expression`、`get_string_at`、`get_call_stack`；分析 action-mega 的 `symbols`、`functions`、`labels`、`comments`、`bookmarks`、`xrefs`；调试领域的 `threads`、`assemble`。`debug_gui` 的 managed 方法名为 `DebugGUI`，SDK 派生的 MCP wire name 为 `debug_gui`；其 `snapshot/focus/get/set` 已在 `x64dbgHandler.h` 实现并受 `enableDebugging` 门控。`breakpoints` 的 `set_batch`、`delete_batch` 与 `memory` 的 `write`、`alloc`、`free` 仍是 action 级缺口，不重复计为缺失 Tool definitions。寄存器批量读取已由 `registers{action:"dump"}` 实现，契约不再重复保留 `get_register_dump`。
 
 ## Current milestone
 
-当前里程碑把会话内目标从旧 `x64dbg://process` breaking rename 为 `x64dbg://session/debuggee`，并新增分页 `x64dbg://attach/processes{?offset,limit}`。候选集合直接来自 `DbgFunctions()->GetProcessList`，与 x64dbg Attach dialog 使用同一过滤快照；每次读取独立分页，managed materialization 后用 `BridgeFree` 释放原生数组。`commandLineArguments` 原样保留 Attach dialog 的 `DBGPROCESSINFO::szExeArgs` best-effort 结果，允许 `ARG_GET_ERROR` 或上游 executable 匹配失败产生的 parser artifact，不在插件内重复读取和归一化每个候选进程的远程命令行。
+当前里程碑实现 [ADR-006](adr/006-debug-gui-evidence-capture.md) 的 `debug_gui{snapshot,focus,get,set}`。`snapshot` 在 x64dbg GUI thread 刷新并捕获完整主窗口，通过 WIC 编码为 PNG；省略 `save_path` 时返回 typed JSON text + MCP image block，提供绝对新 `.png` 路径时只创建文件并返回 metadata/path。`focus/get/set` 把 CPU pane 导航、选区、聚焦、刷新、event flush 与回读组合成单个 GUI-thread transaction；`set` 同时返回 resolved requested 和 GUI actual range。截图摘要是 PNG byte-identity anchor，不是签名 provenance 或可信时间戳。
 
-此前里程碑已为既有 `debug_control` 增加 `attach` action。`pid <= 0` 在 side effect 前返回 `invalid_argument`；detached 状态通过同步 `DbgCmdExecDirect("attach .<decimal-pid>")` 启动 attach loop。活跃调试会话下，省略或显式 `detach2attach=false` 均在 side effect 前拒绝；显式 `true` 时仅在本次同步命令分派期间把全局 `Engine/DetachOnAttach` 临时设为 `1`，随后恢复原设置，从而 detach 旧 debuggee、保持其运行并 attach 新 PID。本插件的并发 attach 调用由 mutex 串行化；Tool 的 success 只表示命令 handler 已接受并启动 attach，最终目标身份由 `x64dbg://session` 与 `x64dbg://session/debuggee` 确认。更早的里程碑包括 `breakpoints{get,set,set_hardware,disable,delete}`、`memory_read` → `memory{action:"read"}` 迁移和分页 `x64dbg://breakpoints` Resource。
+此前里程碑把会话内目标从旧 `x64dbg://process` breaking rename 为 `x64dbg://session/debuggee`，新增分页 `x64dbg://attach/processes{?offset,limit}`，并为 `debug_control` 增加 `attach` action。候选集合直接来自 `DbgFunctions()->GetProcessList`，与 x64dbg Attach dialog 使用同一过滤快照；`attach` 的 success 只表示命令 handler 已接受并启动 attach，最终目标身份由 `x64dbg://session` 与 `x64dbg://session/debuggee` 确认。更早的里程碑包括 `breakpoints{get,set,set_hardware,disable,delete}`、`memory_read` → `memory{action:"read"}` 迁移和分页 `x64dbg://breakpoints` Resource。
 
 `enableDebugging` 的正式含义是“调试领域 Tool catalog / schema-budget 门控”，不是通用写权限。Resource 的正式边界是只读批量快照，Tool 的正式边界是单项精细读取、修改与控制；同一领域可以同时存在两种表面，但不得重复等价操作。见 [ADR-003](adr/003-tool-resource-action-three-layer.md)。
 
@@ -43,10 +43,10 @@
 
 | Check | Status | Evidence / limit |
 |---|---|---|
-| Debug x64 build | Verified | `out/bin/x64-Debug/x64dbgMCP.dp64`, SHA-256 `DF74C004F6B13EA91F2696DFD99E581FD692527C69871EB7A727DD19B01B42F9`; 2026-08-20 CMake/MSBuild compiling run succeeded with 0 errors and 8 pre-existing C4945 reference warnings, followed by a current-tree incremental rerun with 0 warnings / 0 errors |
-| Debug Win32 build | Verified | `out/bin/win32-Debug/x64dbgMCP.dp32`, SHA-256 `8D0B54DABA5ED6A5F7C8C520085E2F481ACF85ED6046AA5523485C8A86A77BA8`; the same compiling run succeeded with 0 errors and 8 pre-existing C4945 warnings; current Resource changes are build-only on x86 |
-| Full plugin deployment | Verified | Current x64 complete 11-file `OutputPath` set deployed to the specified x64dbg `plugins` directory with every source/deployed SHA-256 pair matched; deployed `.dp64` hash is `DF74C004F6B13EA91F2696DFD99E581FD692527C69871EB7A727DD19B01B42F9`; x86 was build-only in this milestone |
-| MCP catalog | Verified on current x64 | Returned exactly `debug_control`, `breakpoints`, `registers`, `disassemble`, `memory`, `logging`. Live Resources returned 8 fixed plus 7 templates: fixed `x64dbg://session/debuggee` and template `x64dbg://attach/processes{?offset,limit}` were present, old `x64dbg://process` was absent and a direct read returned `Unknown resource URI`. Existing Tool and breakpoint schemas remained registered |
+| Debug x64 build | Verified | `out/bin/x64-Debug/x64dbgMCP.dp64`, SHA-256 `89E6D67742C8E2AE0B4FD05354B7F117E4F61AC9B133CDA51BEEE25E8D1BEC46`; 2026-08-20 CMake/MSBuild run succeeded with 0 errors and 8 known C4945 duplicate-import warnings |
+| Debug Win32 build | Verified | `out/bin/win32-Debug/x64dbgMCP.dp32`, SHA-256 `7EC5C80B99D58769F872BD8EB55539B4B4EE2DF8F3DCAB7BD6C26A4B4CB3EE32`; the same run succeeded with 0 errors and 8 known C4945 warnings; DebugGUI remains live-unverified on x86 |
+| Full plugin deployment | Verified | Complete 11-file x64 and x86 `OutputPath` sets were deployed to the matching x64dbg `plugins` directories; every source/deployed filename, size, and SHA-256 matched. Deployed plugin hashes are the `.dp64` / `.dp32` hashes recorded above, and both sets include `Ijwhost.dll`, `.deps.json`, `.runtimeconfig.json`, `ModelContextProtocol*.dll`, and `Microsoft.Extensions.AI.Abstractions.dll` |
+| MCP catalog | Verified on current x64 | Returned exactly `debug_control`, `breakpoints`, `registers`, `disassemble`, `debug_gui`, `memory`, `logging`; `debug_gui` exposed the flat `action/window/start/end/save_path` schema with only `action` required. Existing fixed Resources and templates remained available; `x64dbg://modules/notepad.exe` emitted `_links.entry_disasm.tool="disassemble"` |
 | Existing Resources | Previous baseline retained | The previous 13 endpoints and modules pagination passed on x64/x86. This milestone reran the complete catalogs plus `session`, renamed `session/debuggee`, and new `attach/processes`; the unrelated pre-existing Resource payload matrix was not fully rerun |
 | `x64dbg://attach/processes` | Verified on current x64 | Final deployed binary's detached default read returned `offset=0`, `limit=100`, `total=201`, `hasMore=true`; tracked Notepad PID 10316 was present with exact name/path and the upstream case-sensitive-parser artifact `:\Windows\notepad.exe" C:\Windows\win.ini`, matching NtObjectManager on PID/path. A copied x64 `PING.EXE` fixture named `x64dbg.attach.fixture.exe` returned `name="x64dbg"`, proving exact Qt `QFileInfo::baseName()` first-dot semantics; the tracked fixture and its single-file temporary directory were then removed. Earlier in the same task, pages at `0/5` and `5/5` returned 5 entries with correct next/prev links; `offset=-5,limit=0` normalized to `0/1`, `limit=500` clamped to 100, and total varied from 197 to 203 across per-request snapshots as helper processes came and went |
 | `x64dbg://breakpoints` | Verified on x64 | Electron database returned the expected 11 normal + 1 execute-hardware breakpoints with exact addresses, one-shot/enabled state, names, hit counts, break/log/command fields, and `hardwareSize/Slot`; joining each address to `disassemble(count=1)` reproduced all 12 instruction rows. Temporary execute-memory, DLL-load, and first-chance exception breakpoints proved all five type/subtype mappings and were precisely deleted; total returned from 15 to 12. Pages `5/5/2`, next/prev links, negative-offset normalization, and `limit=500` clamping to 100 passed |
@@ -58,19 +58,18 @@
 | `registers` | Verified on x64 and x86 | Active dump, get, set-to-same-value, architecture-specific register sets, paused inactive-thread dump, missing thread, and running-target `not_paused` paths passed |
 | `debug_control` | Verified on current x64 | Final deployed binary's detached attach to Notepad PID 10316 returned provisional `success:true` with `isDebugging:false`; the first Resource poll converged to `session.isDebugging=true` and `session/debuggee.processId=10316`, with exact path and full command line matching NtObjectManager (x64, non-WOW64, Session 10, unchanged creation time). Earlier attach validation proved `pid=0` rejection, active-session false/omitted rejection, explicit `detach2attach=true` switching between PIDs 11064/36760 while restoring `Engine/DetachOnAttach=0`, and the then-current process Resource retained the old target until a permitted switch. Previous `init/run/pause/stop/StepInto/StepOver/StepOut/run_command(wait=true)` and x32 lifecycle evidence is retained |
 | `logging` | Verified on x64 and x86 | After displaying the Log tab, `clear` → `put` → Resource read preserved exact Chinese UTF-8 text; empty `put` returned `invalid_argument` |
-| `debug_gui` | Contract only | ADR-006 and the target schema are accepted. No method, `tools/list` registration, GUI capture, file delivery, selection behavior, build, deployment, or live x32dbg/x64dbg evidence exists yet |
+| `debug_gui` | Implemented; x64 live verified | Against the final deployed x64 plugin, detached inline snapshot returned exactly typed JSON text + one `image/png` block; the 2586×1530 decoded PNG had matching magic, dimensions, non-uniform pixels, and SHA-256. File mode returned one text block, wrote no-overwrite PNG metadata/path, and rejected existing, relative, non-PNG, and missing-parent paths. A real Notepad debug session proved default `focus=Disassembly`; Disassembly single-selection expanded resolved `start=end=0x7FFA8BF1D78E` to the complete 2-byte `EB00` instruction ending at `0x7FFA8BF1D78F`; Dump/Stack retained one byte; an explicit 16-byte Dump range round-tripped exactly. Bad window case, reversed range, unresolved expression, detached focus/get/set, final Resource detachment, and process cleanup passed. Evidence PNG: `out/debug-gui-e2e/x64-live-disassembly-2248.png`, SHA-256 `52DC1AFC9329F65C9C2038FED4E17103E88C19CDAD4CE0AD0B9E5457EB902428`. x86 build/deployment passed; x86 live GUI semantics remain unverified |
 | Tool output schema | Known SDK boundary | Current `[McpServerTool]` annotations do not set `UseStructuredContent`; typed results are returned as JSON text content and are not advertised as `outputSchema` in `tools/list` |
 | Logging snapshot boundary | Upstream-defined | `GuiLogSave` serializes the rendered `QTextDocument`; while the Log tab is hidden, x64dbg may retain newer messages in its private `logBuffer` until the tab is displayed and its flush timer runs |
 | Electron PDB | Partially observable | Waited more than two minutes and x64dbg resource use stabilized, but the current MCP surface has no symbols Resource/Tool, so PDB symbol enumeration was not and cannot be claimed as verified |
 | Release builds | Not rerun for this milestone | Current namespace and attach-candidates Resource changes were validated in Debug builds; the previous Release result is not treated as current evidence |
-| Server stop / cleanup | Verified for current namespace run | Final `debug_control{stop}` was followed by `x64dbg://session.isDebugging=false` and `x64dbg://session/debuggee.processId=0`; tracked Notepad PID 10316 exited. `mcp.stop` plus closing tracked x64dbg PID 18352 removed both `127.0.0.1:3201` and `[::1]:3201`; no tracked test or fixture PID remained. Port 3001 was unavailable because Windows currently excludes TCP 2946–3045 for IPv4/IPv6; DebugView captured the expected Kestrel `SocketException (10013)`, so live validation used unreserved loopback port 3201 without changing the default contract. Occupied-port failure propagation itself was not rerun |
+| Server stop / cleanup | Verified for current DebugGUI run | Final `debug_control{stop}` was followed by `x64dbg://session.isDebugging=false` and `x64dbg://session/debuggee.processId=0`; tracked Notepad PID 52100 exited. Gracefully closing tracked x64dbg PID 2248 removed its `[::1]:3001` listener; neither tracked process remained. At the time of this run the Windows IPv4/IPv6 excluded-port lists no longer covered 3001, so the formal default port was used. Occupied-port failure propagation was not rerun |
 
 ## Known conformance gaps
 
-1. Per-module `_links.entry_disasm.tool` is currently emitted as the managed method name `Disassemble`, while MCP C# SDK 2.1.0 registers the wire name `disassemble`. The Resource payload is readable, but a case-sensitive client cannot invoke that link verbatim. Code must emit the wire name defined by [conventions.md](conventions.md#1-naming).
-2. The five reserved Resources and thirteen target Tool definitions listed under Coverage are not registered. Their presence in the root README describes the intended product surface, not current implementation.
-3. The registered `memory` Tool currently implements only `read`; target actions `write`, `alloc`, and `free` remain undispatched and are deliberately excluded from its live description.
-4. General Symbol/PDB enumeration has no MCP-observable Resource/Tool contract yet. `disassemble` exposes only exact module-import/IAT references; large-PDB process stability is evidence about the host session only, not evidence that arbitrary symbols can be queried through MCP.
+1. The five reserved Resources and twelve target Tool definitions listed under Coverage are not registered. Their presence in the root README describes the intended product surface, not current implementation.
+2. The registered `memory` Tool currently implements only `read`; target actions `write`, `alloc`, and `free` remain undispatched and are deliberately excluded from its live description.
+3. General Symbol/PDB enumeration has no MCP-observable Resource/Tool contract yet. `disassemble` exposes only exact module-import/IAT references; large-PDB process stability is evidence about the host session only, not evidence that arbitrary symbols can be queried through MCP.
 
 ## Temporary experiment deviations
 
@@ -81,11 +80,10 @@
 
 ## Next implementation order
 
-1. 先修复现有 `_links.entry_disasm.tool` 的 wire-name 漂移，并增加目录/链接一致性检查，避免 Resource 导航指向不存在的 Tool。
-2. 按 [ADR-006](adr/006-debug-gui-evidence-capture.md) 实现并专项验收 `debug_gui`：先闭环主窗口 PNG 的 inline/file 互斥交付和 SHA-256，再验证三类 CPU pane 的 focus/get/set、缺省 `end=start` 与 requested/actual readback。x64 与 x86 都必须做真实 GUI 验收，不能以 build-only 代替。
-3. 补齐常驻 rich-param 查询：`parse_expression` → `get_string_at` → `find_pattern` → `get_call_stack`。
-4. 成对实现批量 Resource 与单项 Tool：symbols → labels → comments → bookmarks → functions；`xrefs` 只保留目标地址上的精细 Tool。Symbols 应包含可验证的 PDB 加载/枚举状态，使 Electron 大型 PDB 场景第一次具备 MCP 语义验收面。
-5. 扩展其余调试领域目录：`memory{write,alloc,free}` → `threads` → `assemble`；breakpoints 的批量 Resource 与五个首批 mutation actions、`memory{read}` 已完成。
-6. 重验双架构 Release、`mcp.stop` → restart 和端口占用失败传播；在行为稳定后，为单测/集成测试策略新增 ADR，并把 live smoke cases 固化为可重复测试入口。
+1. 对 [ADR-006](adr/006-debug-gui-evidence-capture.md) 做 x86 GUI 专项验收：复用已通过的 x64 PNG/selection matrix，补齐三类 CPU pane 的 x86 focus/get/set 与清理证据。
+2. 补齐常驻 rich-param 查询：`parse_expression` → `get_string_at` → `find_pattern` → `get_call_stack`。
+3. 成对实现批量 Resource 与单项 Tool：symbols → labels → comments → bookmarks → functions；`xrefs` 只保留目标地址上的精细 Tool。Symbols 应包含可验证的 PDB 加载/枚举状态，使 Electron 大型 PDB 场景第一次具备 MCP 语义验收面。
+4. 扩展其余调试领域目录：`memory{write,alloc,free}` → `threads` → `assemble`；breakpoints 的批量 Resource 与五个首批 mutation actions、`memory{read}` 已完成。
+5. 重验双架构 Release、`mcp.stop` → restart 和端口占用失败传播；在行为稳定后，为单测/集成测试策略新增 ADR，并把 live smoke cases 固化为可重复测试入口。
 
 每一批继续遵守 Docs-first：先把 🟡/⚪ 契约收敛为可实施 schema，再改代码；若实现证据与基线冲突，按根级 `AGENTS.md` 要求先停止并对齐文档。
