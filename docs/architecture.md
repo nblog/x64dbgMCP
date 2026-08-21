@@ -54,6 +54,8 @@ This document describes the runtime structure, component layering, and lifecycle
 
 The plugin executes as a **single in-process mixed-mode DLL**. The native side handles x64dbg's plugin contract; the CLR side hosts an embedded ASP.NET Core `WebApplication` running the MCP HTTP transport. There is no out-of-process server and no IPC across process boundaries. This describes the runtime process boundary, not the deployment file set: the mixed-mode DLL still loads the managed assemblies and runtime metadata copied beside it from the build output.
 
+Kestrel's listener URL and the MCP route are separate contracts. The default listener is `http://localhost:3001`, while [ADR-008](adr/008-mcp-endpoint-path.md) fixes the one MCP endpoint at `http://localhost:3001/mcp`; the root path is not an MCP alias. The default listener is loopback-only. A non-loopback `host` is an explicit deployment escape hatch, not authentication.
+
 ---
 
 ## 2. Lifecycle
@@ -62,7 +64,7 @@ The plugin executes as a **single in-process mixed-mode DLL**. The native side h
 |---|---|---|
 | Load | x64dbg loads `*.dp32`/`*.dp64` at startup or via `Plugins → Load` | Native `pluginit` registers x64dbg commands `mcp.start` and `mcp.stop`. CLR is initialised lazily on first managed call. |
 | Activate | User issues `mcp.start [port=3001],[host=localhost],[enableDebugging]` in x64dbg command line | A background `Task` constructs and starts `WebApplication`, then waits until `StopAsync`. The command reports success only after Kestrel has bound the configured URL. |
-| Serve | MCP client connects via Streamable HTTP (`POST /`) or Legacy SSE (`GET /sse` + `POST /message`) | Tool/resource methods are dispatched on ASP.NET Core thread-pool threads and call the x64dbg pluginsdk. Calls that intentionally use x64dbg fire-and-forget semantics (for example `debug_control{action:"run"}`) return without waiting for the next debugger stop. |
+| Serve | MCP client connects to the single Streamable HTTP endpoint `POST /mcp`; stateless mode is explicit and Legacy SSE is disabled | Requests carrying an `Origin` header are limited to loopback HTTP(S) origins before Tool/resource dispatch. Methods then run on ASP.NET Core thread-pool threads and call the x64dbg pluginsdk. Calls that intentionally use x64dbg fire-and-forget semantics (for example `debug_control{action:"run"}`) return without waiting for the next debugger stop. |
 | Deactivate | x64dbg shuts down, plugin unloads, or explicit stop command | `McpServerHost::Stop` calls `app.StopAsync` and waits up to 5 s for the background task. A timeout leaves the host marked active until the background task actually exits, preventing an overlapping restart. |
 
 ---

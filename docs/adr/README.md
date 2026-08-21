@@ -13,6 +13,7 @@ ADRs capture **load-bearing design decisions** — choices that constrain how fu
 | [005](005-hateoas-links-on-navigation-roots.md) | HATEOAS `_links` on navigation roots only, not on every leaf | Accepted |
 | [006](006-debug-gui-evidence-capture.md) | `DebugGUI` visual evidence capture and CPU-pane selection control | Accepted |
 | [007](007-scoped-hateoas-relation-keys.md) | Scoped snake_case relation keys for HATEOAS `_links` | Accepted |
+| [008](008-mcp-endpoint-path.md) | Use `/mcp` as the single Streamable HTTP endpoint | Accepted |
 
 ## Status taxonomy
 

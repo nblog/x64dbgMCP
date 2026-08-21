@@ -82,15 +82,17 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 ```
 mcp.start                    ; 默认 port=3001, host=localhost
 mcp.start 3001               ; 指定端口
-mcp.start 3001,0.0.0.0       ; 暴露给非 loopback 客户端 (host=0.0.0.0)
+mcp.start 3001,0.0.0.0       ; 显式非 loopback 绑定；应放在可信且有认证的边界后
 ```
+
+默认 listener 是 `http://localhost:3001`；客户端应配置的唯一 MCP endpoint 是 `http://localhost:3001/mcp`。
 
 ### 2. 接到 MCP 客户端
 
 Claude Code 配置示例：
 
 ```bash
-claude mcp add --transport http x64dbg http://localhost:3001
+claude mcp add --transport http x64dbg http://localhost:3001/mcp
 ```
 
 或在客户端配置文件中：
@@ -99,7 +101,7 @@ claude mcp add --transport http x64dbg http://localhost:3001
 {
   "mcpServers": {
 		"x64dbgmcp": {
-			"url": "http://localhost:3001",
+			"url": "http://localhost:3001/mcp",
 		}
   }
 }

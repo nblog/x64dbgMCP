@@ -9,7 +9,7 @@ External resources used as authoritative sources for design and implementation. 
 ### Specification & official docs
 
 - [modelcontextprotocol.io](https://modelcontextprotocol.io) — protocol overview, transport bindings, capability negotiation
-- [MCP specification](https://spec.modelcontextprotocol.io) — formal spec
+- [MCP Streamable HTTP specification (2026-07-28)](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http) — single endpoint, POST flow, and local-server Origin/loopback security requirements
 - [MCP — Tools vs Resources vs Prompts (community guide)](https://rapidevelopers.com/mcp-tutorial/mcp-tools-vs-resources-vs-prompts) — practical guidance on when to expose what
 
 ### MCP C# SDK
@@ -27,8 +27,9 @@ External resources used as authoritative sources for design and implementation. 
 
 ### MCP transport in ASP.NET Core
 
-- `HttpMcpServerBuilderExtensions::WithHttpTransport` — enables Streamable HTTP + Legacy SSE
-- `McpEndpointRouteBuilderExtensions::MapMcp(app, "")` — maps MCP endpoints to the app's root path
+- [`HttpServerTransportOptions` in v2.1.0](https://github.com/modelcontextprotocol/csharp-sdk/blob/v2.1.0/src/ModelContextProtocol.AspNetCore/HttpServerTransportOptions.cs) — explicit stateless mode and opt-in Legacy SSE settings
+- [`McpEndpointRouteBuilderExtensions.MapMcp` in v2.1.0](https://github.com/modelcontextprotocol/csharp-sdk/blob/v2.1.0/src/ModelContextProtocol.AspNetCore/McpEndpointRouteBuilderExtensions.cs) — maps the supplied route prefix; this project uses `/mcp`
+- [MCP Python SDK README](https://github.com/modelcontextprotocol/python-sdk/blob/main/README.md) and [TypeScript SDK Express serving guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/express.md) — current official `/mcp` client/server examples
 - See [x64dbgMCP.h](../x64dbgMCP/x64dbgMCP.h) for our wiring
 
 ---

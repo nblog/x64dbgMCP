@@ -4,6 +4,8 @@
 - **Date**: 2026-05-24
 - **Deciders**: @nblog
 
+> Endpoint-path and Legacy SSE profile details in this historical decision are superseded by [ADR-008](008-mcp-endpoint-path.md). The MCP-only/no-REST decision remains binding.
+
 ## Context
 
 The project is built on `WebApplication.CreateSlimBuilder` ([x64dbgMCP.h:79](../../x64dbgMCP/x64dbgMCP.h#L79)) so ASP.NET Core is already in the host. A natural question is whether to additionally expose plain REST/OpenAPI endpoints next to the MCP transport — to support clients that are not MCP-aware (curl, Postman, web dashboards).

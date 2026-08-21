@@ -10,7 +10,7 @@
 
 x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [Model Context Protocol](https://modelcontextprotocol.io) 把动态调试能力以"AI 友好"的形态暴露给 MCP 客户端（Claude Code、Codex 等）。
 
-- **运行形态**: x64dbg 插件 (`.dp32`/`.dp64`)，通过 x64dbg 命令 `mcp.start [port=3001],[host=localhost],[enableDebugging]` 启动嵌入式 MCP HTTP server
+- **运行形态**: x64dbg 插件 (`.dp32`/`.dp64`)，通过 x64dbg 命令 `mcp.start [port=3001],[host=localhost],[enableDebugging]` 启动嵌入式 MCP HTTP server；MCP endpoint 为 `http://<host>:<port>/mcp`
 - **技术栈**: C++/CLI (`CLRSupport=NetCore`) + ASP.NET Core (`WebApplication.CreateSlimBuilder`) + [ModelContextProtocol](https://github.com/modelcontextprotocol/csharp-sdk)
 - **目标客户端**: 任何遵守 MCP 规范的 Agent；默认 loopback only，安全边界由本机约束
 
@@ -32,7 +32,7 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 | 设计返回结构 / 错误处理 | [conventions.md](conventions.md#4-result-envelope) + [adr/004](adr/004-typed-result-with-envelope.md) |
 | 设计/实施 GUI 截图取证、聚焦或选区控制 | [adr/006](adr/006-debug-gui-evidence-capture.md) → [tools-spec.md](tools-spec.md#debug-gui) → [conventions.md](conventions.md#9-threading) |
 | 处理寄存器/标志位/表达式输入 | [adr/002](adr/002-resolve-via-x64dbg-expression.md) |
-| 修改 server 启动 / 生命周期 / 端口 / 命令注册 | [architecture.md](architecture.md) |
+| 修改 server 启动 / 生命周期 / endpoint / 端口 / 命令注册 | [architecture.md](architecture.md) → [adr/008](adr/008-mcp-endpoint-path.md) |
 | 引入大型设计变更 | 先查 [adr/](adr/) 是否已存在；若无，**先提议新增 ADR**，再实施 |
 | 查 x64dbg SDK / MCP C# SDK 具体 API | [references.md](references.md) |
 

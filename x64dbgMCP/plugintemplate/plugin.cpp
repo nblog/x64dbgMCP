@@ -28,7 +28,7 @@
 // argv[0] contains the full command, after that are the arguments
 // NOTE: arguments are separated by a COMMA (not space like WinDbg)
 
-// mcp.start [port=3001],[host=localhost] - start MCP server
+// mcp.start [port=3001],[host=localhost] - start MCP server at /mcp
 //   port  : TCP port to listen on (1025-49150)
 //   host  : bind address; pass 0.0.0.0 to expose beyond loopback (default localhost)
 static bool cbMcpStart(int argc, char** argv)
@@ -54,7 +54,7 @@ static bool cbMcpStart(int argc, char** argv)
         enableDebugging = (atoi(argv[3]) != 0);
 
     if (x64dbgMCP::McpServerHost::Start(port, host, enableDebugging)) {
-        dprintf("MCP server started on %s:%d (debug=%d)\n",
+        dprintf("MCP endpoint: http://%s:%d/mcp (debug=%d)\n",
             host ? argv[2] : "localhost", port, enableDebugging ? 1 : 0);
         return true;
     }

@@ -9,10 +9,41 @@ namespace x64dbgMCP {
     using namespace System::Threading;
     using namespace System::Threading::Tasks;
     using namespace Microsoft::AspNetCore::Builder;
+    using namespace Microsoft::AspNetCore::Http;
     using namespace Microsoft::Extensions::DependencyInjection;
     using namespace Microsoft::Extensions::Hosting;
+    using namespace ModelContextProtocol::AspNetCore;
     using namespace ModelContextProtocol::Server;
     using namespace ModelContextProtocol::Protocol;
+
+    public ref class LocalOriginValidationMiddleware : IMiddleware
+    {
+    private:
+        static bool IsAllowedOrigin(String^ origin)
+        {
+            try {
+                auto uri = gcnew Uri(origin);
+                return uri->IsAbsoluteUri && uri->IsLoopback &&
+                    (String::Equals(uri->Scheme, Uri::UriSchemeHttp, StringComparison::OrdinalIgnoreCase) ||
+                     String::Equals(uri->Scheme, Uri::UriSchemeHttps, StringComparison::OrdinalIgnoreCase));
+            }
+            catch (UriFormatException^) {
+                return false;
+            }
+        }
+
+    public:
+        virtual Task^ InvokeAsync(HttpContext^ context, RequestDelegate^ next)
+        {
+            String^ origin = context->Request->Headers["Origin"].ToString();
+            if (!String::IsNullOrWhiteSpace(origin) && !IsAllowedOrigin(origin)) {
+                context->Response->StatusCode = 403;
+                return Task::CompletedTask;
+            }
+
+            return next(context);
+        }
+    };
 
     public ref class McpServerHost
     {
@@ -24,6 +55,10 @@ namespace x64dbgMCP {
         static bool _running = false;
         static bool _starting = false;
         static bool _enableDebugging = false;
+
+        static property String^ McpEndpointPath {
+            String^ get() { return "/mcp"; }
+        }
 
         static void Log(String^ message)
         {
@@ -106,6 +141,12 @@ namespace x64dbgMCP {
             opts->ServerInfo->Version = Helpers::PluginVersion();
         }
 
+        static void ConfigureHttpTransportOptions(HttpServerTransportOptions^ opts)
+        {
+            opts->Stateless = true;
+            opts->EnableLegacySse = false;
+        }
+
         static void RunServerEntry()
         {
             auto startupCompletion = _startupCompletion;
@@ -130,18 +171,20 @@ namespace x64dbgMCP {
                 if (enableDebugging)
                     McpServerBuilderExtensions::WithTools<McpDebuggingTools^>(mcpBuilder);
 
-                // Add HTTP transport (enables Streamable HTTP + legacy SSE)
-                HttpMcpServerBuilderExtensions::WithHttpTransport(mcpBuilder, nullptr);
+                // Keep the product profile explicit across SDK upgrades.
+                HttpMcpServerBuilderExtensions::WithHttpTransport(
+                    mcpBuilder,
+                    gcnew Action<HttpServerTransportOptions^>(&ConfigureHttpTransportOptions));
 
+                ServiceCollectionServiceExtensions::AddTransient<LocalOriginValidationMiddleware^>(builder->Services);
                 _app = builder->Build();
+                UseMiddlewareExtensions::UseMiddleware<LocalOriginValidationMiddleware^>(_app);
 
                 // Bind the configured host; the command defaults it to localhost.
                 _app->Urls->Add(httpUrl);
 
-                // Map MCP endpoints:
-                //   Streamable HTTP: POST /
-                //   Legacy SSE:      GET /sse, POST /message
-                McpEndpointRouteBuilderExtensions::MapMcp(_app, "");
+                // Map the single canonical MCP endpoint.
+                McpEndpointRouteBuilderExtensions::MapMcp(_app, McpEndpointPath);
 
                 Log("WebApplication starting on " + httpUrl);
                 _app->StartAsync()->GetAwaiter().GetResult();

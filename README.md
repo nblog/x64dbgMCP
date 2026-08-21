@@ -82,15 +82,17 @@ Start the server:
 ```
 mcp.start                    ; default port=3001, host=localhost
 mcp.start 3001               ; specify a port
-mcp.start 3001,0.0.0.0       ; expose to non-loopback clients (host=0.0.0.0)
+mcp.start 3001,0.0.0.0       ; explicit non-loopback bind; place behind a trusted authenticated boundary
 ```
+
+The default listener is `http://localhost:3001`; the single MCP endpoint clients configure is `http://localhost:3001/mcp`.
 
 ### 2. Connect an MCP Client
 
 Claude Code configuration example:
 
 ```bash
-claude mcp add --transport http x64dbg http://localhost:3001
+claude mcp add --transport http x64dbg http://localhost:3001/mcp
 ```
 
 Or in your client's config file:
@@ -99,7 +101,7 @@ Or in your client's config file:
 {
   "mcpServers": {
 		"x64dbgmcp": {
-			"url": "http://localhost:3001",
+			"url": "http://localhost:3001/mcp",
 		}
   }
 }
