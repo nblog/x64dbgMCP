@@ -260,6 +260,52 @@ public:
 source DLL name. The resource reports only fields that the public x64dbg Script API can
 provide truthfully.
 
+### `x64dbg://modules/{name}/strings{?offset,limit,length}` 🟡
+
+Returns paged string-reference rows for one loaded module. This is the structured equivalent
+of x64dbg's `strref`/`refstr` result, not a direct byte-wise strings table: the scanner walks
+the module range with x64dbg fast-disassembly, checks statically resolved immediate and memory
+operands, and decodes the target address. It does not invoke the GUI command or read the global
+Reference View.
+
+`offset` defaults to `0`; `limit` defaults to `100` and is clamped to `1..100`. The optional
+`length` query value is the minimum decoded character count, defaults to `4`, and must be in
+`3..512`. It is deliberately separate from the module scan byte range: the full loaded module
+`base/size` is scanned, while each candidate string is read until NUL or the internal 512-byte
+probe limit. A future `x64dbg://memory/{address}/strings` Resource will reuse the same scanner
+with a separately resolved range size.
+
+```cpp
+public ref class StringReferenceEntry
+{
+public:
+    property String^ Address;        // referencing instruction VA, hex
+    property String^ Disassembly;    // x64dbg fast-disasm text
+    property String^ StringAddress;  // referenced string VA, hex
+    property String^ Value;          // wire name "string"; decoded content, without display quotes
+    property String^ Encoding;       // "utf16le" | "utf8" | "ansi"
+    property int Length;             // decoded character count
+};
+
+public ref class StringReferencesPayload
+{
+public:
+    property List<StringReferenceEntry^>^ Data;
+    property PageInfo^ Page;
+    property bool Truncated;         // true when the internal 5000-row cap was reached
+    property String^ ScanStart;      // module base, hex
+    property String^ ScanSize;       // module size, hex
+    property int MinimumLength;      // requested length query value
+    property Dictionary<String^, LinkRef^>^ Links; // self/next/prev/module/session
+};
+```
+
+The decoder order is fixed and observable through `encoding`: Windows little-endian UTF-16,
+then strict UTF-8, then the current Windows ANSI code page from `GetACP()`. Invalid encodings,
+embedded control characters, and candidates that cannot be bounded by a NUL or the internal
+probe limit are discarded; candidates shorter than `length` are also discarded. Unknown module
+names fail the resource request in the same way as the other module child Resources.
+
 ### `x64dbg://memory/maps` 🟢
 
 Returns `MemoryMapsPayload` with `_links` at the top level. Protection values use

@@ -447,6 +447,32 @@ namespace x64dbgMCP {
         [JsonPropertyName("iatVa")]           property String^ IatVa;
     };
 
+    public ref class StringReferenceEntry
+    {
+    public:
+        [JsonPropertyName("address")]       property String^ Address;
+        [JsonPropertyName("disassembly")]   property String^ Disassembly;
+        [JsonPropertyName("stringAddress")] property String^ StringAddress;
+        [JsonPropertyName("string")]        property String^ Value;
+        [JsonPropertyName("encoding")]      property String^ Encoding;
+        [JsonPropertyName("length")]        property int Length;
+    };
+
+    public ref class StringReferencesPayload
+    {
+    public:
+        [JsonPropertyName("data")] property List<StringReferenceEntry^>^ Data;
+        [JsonPropertyName("page")] property PageInfo^ Page;
+        [JsonPropertyName("truncated")] property bool Truncated;
+        [JsonPropertyName("scanStart")] property String^ ScanStart;
+        [JsonPropertyName("scanSize")] property String^ ScanSize;
+        [JsonPropertyName("minimumLength")] property int MinimumLength;
+
+        [JsonPropertyName("_links")]
+        [JsonIgnore(Condition = JsonIgnoreCondition::WhenWritingNull)]
+        property Dictionary<String^, LinkRef^>^ Links;
+    };
+
     public ref class MemoryRegion
     {
     public:
@@ -1571,6 +1597,321 @@ namespace x64dbgMCP {
         }
     };
 
+    // Shared range-based string-reference scanner. It mirrors x64dbg's strref
+    // operand walk, but keeps the result in memory instead of mutating the GUI
+    // Reference View. A future memory strings Resource can reuse this class by
+    // supplying a different start/rangeSize pair.
+    ref class StringDecodeResult sealed
+    {
+    public:
+        String^ Value;
+        String^ Encoding;
+        int Length;
+    };
+
+    ref class StringScanner abstract sealed
+    {
+    public:
+        literal int DefaultMinimumLength = 4;
+        literal int MinimumAllowedLength = 3;
+        literal int MaximumLength = 512;
+        literal int MaximumResults = 5000;
+
+        static List<StringReferenceEntry^>^ ScanReferences(
+            duint start,
+            duint rangeSize,
+            int minimumLength,
+            [Out] bool% truncated)
+        {
+            truncated = false;
+            auto result = gcnew List<StringReferenceEntry^>();
+            if (start == 0 || rangeSize == 0
+                || minimumLength < MinimumAllowedLength
+                || minimumLength > MaximumLength)
+                return result;
+
+            duint end = start + rangeSize;
+            if (end < start)
+                end = (duint)-1;
+
+            auto decodedCache = gcnew Dictionary<UInt64, StringDecodeResult^>();
+            for (duint current = start; current < end && result->Count < MaximumResults;)
+            {
+                if (!DbgMemIsValidReadPtr(current))
+                {
+                    current++;
+                    continue;
+                }
+
+                BASIC_INSTRUCTION_INFO basicInfo{};
+                DbgDisasmFastAt(current, &basicInfo);
+                duint remaining = end - current;
+                duint step = basicInfo.size > 0 ? (duint)basicInfo.size : 1;
+                if (step > remaining)
+                    step = 1;
+
+                if (!basicInfo.branch)
+                {
+                    AddReference(current, basicInfo.value.value,
+                        (basicInfo.type & TYPE_VALUE) != 0,
+                        basicInfo, minimumLength, decodedCache, result);
+                    if (result->Count < MaximumResults)
+                    {
+                        AddReference(current, basicInfo.memory.value,
+                            (basicInfo.type & TYPE_MEMORY) != 0,
+                            basicInfo, minimumLength, decodedCache, result);
+                    }
+                }
+
+                current += step;
+            }
+
+            truncated = result->Count >= MaximumResults;
+            return result;
+        }
+
+    private:
+        static bool IsReadable(String^ value)
+        {
+            if (String::IsNullOrEmpty(value))
+                return false;
+
+            for each (wchar_t ch in value)
+            {
+                if (ch == L'\r' || ch == L'\n' || ch == L'\t')
+                    continue;
+                if (Char::IsControl(ch) || ch == 0xFFFD)
+                    return false;
+            }
+            return true;
+        }
+
+        static int SingleByteTerminator(array<unsigned char>^ bytes, int count)
+        {
+            for (int i = 0; i < count; i++)
+                if (bytes[i] == 0)
+                    return i;
+            return count;
+        }
+
+        static int Utf16Terminator(array<unsigned char>^ bytes, int count)
+        {
+            for (int i = 0; i + 1 < count; i += 2)
+                if (bytes[i] == 0 && bytes[i + 1] == 0)
+                    return i;
+            return -1;
+        }
+
+        static bool ReadCandidate(
+            duint address,
+            [Out] array<unsigned char>^% bytes,
+            [Out] int% count)
+        {
+            bytes = nullptr;
+            count = 0;
+
+            duint regionSize = 0;
+            duint regionBase = DbgMemFindBaseAddr(address, &regionSize);
+            if (!regionBase || address < regionBase)
+                return false;
+
+            duint offset = address - regionBase;
+            if (offset >= regionSize)
+                return false;
+
+            duint available = regionSize - offset;
+            duint bounded = available < (duint)MaximumLength
+                ? available
+                : (duint)MaximumLength;
+            int requested = (int)bounded;
+            if (requested < 2)
+                return false;
+
+            for (int attempt = requested; attempt >= 2; )
+            {
+                auto candidate = gcnew array<unsigned char>(attempt);
+                pin_ptr<unsigned char> pinned = &candidate[0];
+                if (DbgMemRead(address, pinned, (duint)attempt))
+                {
+                    bytes = candidate;
+                    count = attempt;
+                    return true;
+                }
+
+                if (attempt <= 32)
+                    attempt--;
+                else
+                    attempt /= 2;
+            }
+            return false;
+        }
+
+        static StringDecodeResult^ MakeDecoded(String^ value, String^ encoding, int length)
+        {
+            if (!IsReadable(value))
+                return nullptr;
+
+            auto decoded = gcnew StringDecodeResult();
+            decoded->Value = value;
+            decoded->Encoding = encoding;
+            decoded->Length = length;
+            return decoded;
+        }
+
+        static StringDecodeResult^ TryDecodeUtf16(
+            array<unsigned char>^ bytes,
+            int count,
+            int minimumLength)
+        {
+            int terminator = Utf16Terminator(bytes, count);
+            if (terminator < minimumLength * 2)
+                return nullptr;
+
+            // A single-byte string whose NUL is followed by padding can otherwise
+            // look like UTF-16LE. A valid bounded UTF-8 candidate takes precedence
+            // over that false UTF-16 shape, while ordinary UTF-16 ASCII still has
+            // its first single-byte NUL at index 1 and therefore cannot pass this
+            // minimum-length check.
+            int singleTerminator = SingleByteTerminator(bytes, count);
+            if (singleTerminator >= minimumLength)
+            {
+                try
+                {
+                    auto utf8 = gcnew UTF8Encoding(false, true);
+                    String^ utf8Value = utf8->GetString(bytes, 0, singleTerminator);
+                    if (IsReadable(utf8Value) && utf8Value->Length >= minimumLength)
+                        return nullptr;
+                }
+                catch (DecoderFallbackException^)
+                {
+                    // Not valid UTF-8; keep trying UTF-16LE.
+                }
+            }
+
+            try
+            {
+                auto encoding = gcnew UnicodeEncoding(false, false, true);
+                String^ value = encoding->GetString(bytes, 0, terminator);
+                if (value->Length < minimumLength)
+                    return nullptr;
+                return MakeDecoded(value, "utf16le", value->Length);
+            }
+            catch (DecoderFallbackException^)
+            {
+                return nullptr;
+            }
+        }
+
+        static StringDecodeResult^ TryDecodeUtf8(
+            array<unsigned char>^ bytes,
+            int count,
+            int minimumLength)
+        {
+            int terminator = SingleByteTerminator(bytes, count);
+            if (terminator < minimumLength)
+                return nullptr;
+
+            try
+            {
+                auto encoding = gcnew UTF8Encoding(false, true);
+                String^ value = encoding->GetString(bytes, 0, terminator);
+                if (value->Length < minimumLength)
+                    return nullptr;
+                return MakeDecoded(value, "utf8", value->Length);
+            }
+            catch (DecoderFallbackException^)
+            {
+                return nullptr;
+            }
+        }
+
+        static StringDecodeResult^ TryDecodeAnsi(
+            array<unsigned char>^ bytes,
+            int count,
+            int minimumLength)
+        {
+            int terminator = SingleByteTerminator(bytes, count);
+            if (terminator < minimumLength)
+                return nullptr;
+
+            pin_ptr<unsigned char> input = &bytes[0];
+            int wideCount = MultiByteToWideChar(
+                GetACP(), MB_ERR_INVALID_CHARS,
+                reinterpret_cast<LPCCH>(input), terminator,
+                nullptr, 0);
+            if (wideCount <= 0)
+                return nullptr;
+
+            auto wide = gcnew array<wchar_t>(wideCount);
+            pin_ptr<wchar_t> output = &wide[0];
+            if (MultiByteToWideChar(
+                GetACP(), MB_ERR_INVALID_CHARS,
+                reinterpret_cast<LPCCH>(input), terminator,
+                output, wideCount) != wideCount)
+                return nullptr;
+
+            String^ value = gcnew String(output, 0, wideCount);
+            if (value->Length < minimumLength)
+                return nullptr;
+            return MakeDecoded(value, "ansi", value->Length);
+        }
+
+        static StringDecodeResult^ DecodeAt(
+            duint address,
+            int minimumLength)
+        {
+            array<unsigned char>^ bytes;
+            int count = 0;
+            if (!ReadCandidate(address, bytes, count))
+                return nullptr;
+
+            // The order is part of the Resource contract: UTF-16LE first,
+            // strict UTF-8 second, and the current Windows ANSI code page last.
+            auto decoded = TryDecodeUtf16(bytes, count, minimumLength);
+            if (decoded != nullptr)
+                return decoded;
+            decoded = TryDecodeUtf8(bytes, count, minimumLength);
+            if (decoded != nullptr)
+                return decoded;
+            return TryDecodeAnsi(bytes, count, minimumLength);
+        }
+
+        static void AddReference(
+            duint instructionAddress,
+            duint stringAddress,
+            bool hasOperand,
+            BASIC_INSTRUCTION_INFO% basicInfo,
+            int minimumLength,
+            Dictionary<UInt64, StringDecodeResult^>^ decodedCache,
+            List<StringReferenceEntry^>^ result)
+        {
+            if (!hasOperand || stringAddress == 0)
+                return;
+
+            UInt64 key = (UInt64)stringAddress;
+            StringDecodeResult^ decoded;
+            if (decodedCache->ContainsKey(key))
+                decoded = decodedCache[key];
+            else
+            {
+                decoded = DecodeAt(stringAddress, minimumLength);
+                decodedCache[key] = decoded;
+            }
+
+            if (decoded == nullptr)
+                return;
+
+            auto entry = gcnew StringReferenceEntry();
+            entry->Address = Helpers::FormatAddress(instructionAddress);
+            entry->Disassembly = Helpers::FromCStr(basicInfo.instruction);
+            entry->StringAddress = Helpers::FormatAddress(stringAddress);
+            entry->Value = decoded->Value;
+            entry->Encoding = decoded->Encoding;
+            entry->Length = decoded->Length;
+            result->Add(entry);
+        }
+    };
+
     // ────────────────────────────────────────────────────────────────
     //  Resources — McpResources (ADR-003 Layer A)
     // ────────────────────────────────────────────────────────────────
@@ -1944,6 +2285,71 @@ namespace x64dbgMCP {
             return MakeJson(data, ModuleChildUri(Helpers::FromCStr(nativeModule.name), "imports"));
         }
 
+#pragma warning(push)
+#pragma warning(disable: 4965)
+        [McpServerResource(UriTemplate = "x64dbg://modules/{name}/strings{?offset,limit,length}", Name = "module-strings", MimeType = "application/json")]
+        [Description("Paged string-reference rows for one loaded module. Scans the module with x64dbg fast-disassembly and decodes targets as UTF-16LE, strict UTF-8, or current ANSI.")]
+        static ResourceContents^ ModuleStrings(RequestContext<ReadResourceRequestParams^>^ requestContext)
+        {
+            String^ requestUri = requestContext != nullptr && requestContext->Params != nullptr
+                ? requestContext->Params->Uri
+                : "x64dbg://modules/unknown/strings";
+            String^ name = ModuleStringsNameFromUri(requestUri);
+            if (String::IsNullOrWhiteSpace(name))
+                throw gcnew NotSupportedException("Unknown module strings URI: " + requestUri);
+
+            Script::Module::ModuleInfo nativeModule{};
+            RequireModule(name, &nativeModule);
+
+            int pageOffset = Math::Max(0, QueryInt(requestUri, "offset", 0));
+            int pageLimit = Math::Min(Math::Max(1, QueryInt(requestUri, "limit", 100)), 100);
+            int minimumLength = QueryInt(requestUri, "length", StringScanner::DefaultMinimumLength);
+            if (minimumLength < StringScanner::MinimumAllowedLength
+                || minimumLength > StringScanner::MaximumLength)
+                throw gcnew ArgumentException("length must be in [3, 512]");
+
+            bool truncated = false;
+            auto all = StringScanner::ScanReferences(
+                nativeModule.base,
+                nativeModule.size,
+                minimumLength,
+                truncated);
+
+            auto payload = gcnew StringReferencesPayload();
+            payload->Data = gcnew List<StringReferenceEntry^>();
+            payload->Page = gcnew PageInfo();
+            payload->Page->Offset = pageOffset;
+            payload->Page->Limit = pageLimit;
+            payload->Page->Total = all->Count;
+            payload->Truncated = truncated;
+            payload->ScanStart = Helpers::FormatAddress(nativeModule.base);
+            payload->ScanSize = Helpers::FormatAddress(nativeModule.size);
+            payload->MinimumLength = minimumLength;
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+
+            String^ canonicalName = Helpers::FromCStr(nativeModule.name);
+            payload->Links["self"] = Helpers::UriLink(
+                ModuleStringsUri(canonicalName, pageOffset, pageLimit, minimumLength));
+            payload->Links["module"] = Helpers::UriLink(ModuleUri(canonicalName));
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+
+            int begin = Math::Min(pageOffset, all->Count);
+            int end = Math::Min(all->Count, pageOffset + pageLimit);
+            for (int i = begin; i < end; i++)
+                payload->Data->Add(all[i]);
+
+            payload->Page->HasMore = end < all->Count;
+            if (payload->Page->HasMore)
+                payload->Links["next"] = Helpers::UriLink(
+                    ModuleStringsUri(canonicalName, pageOffset + pageLimit, pageLimit, minimumLength));
+            if (pageOffset > 0)
+                payload->Links["prev"] = Helpers::UriLink(
+                    ModuleStringsUri(canonicalName, Math::Max(0, pageOffset - pageLimit), pageLimit, minimumLength));
+
+            return MakeJson(payload, requestUri);
+        }
+#pragma warning(pop)
+
         [McpServerResource(UriTemplate = "x64dbg://memory/maps", Name = "memory-maps", MimeType = "application/json")]
         [Description("Memory map for the debugged process with readable protection, state, and type values.")]
         static ResourceContents^ MemoryMaps()
@@ -2233,6 +2639,33 @@ namespace x64dbgMCP {
             return String::Format("x64dbg://modules?offset={0}&limit={1}", offset, limit);
         }
 
+        static String^ ModuleStringsUri(String^ name, int offset, int limit, int minimumLength)
+        {
+            return String::Format(
+                "{0}/strings?offset={1}&limit={2}&length={3}",
+                ModuleUri(name), offset, limit, minimumLength);
+        }
+
+        static String^ ModuleStringsNameFromUri(String^ requestUri)
+        {
+            if (String::IsNullOrWhiteSpace(requestUri))
+                return nullptr;
+
+            auto parsed = gcnew Uri(requestUri);
+            if (!String::Equals(parsed->Host, "modules", StringComparison::OrdinalIgnoreCase))
+                return nullptr;
+
+            String^ path = parsed->AbsolutePath->Trim('/');
+            String^ suffix = "/strings";
+            if (!path->EndsWith(suffix, StringComparison::OrdinalIgnoreCase))
+                return nullptr;
+
+            String^ escapedName = path->Substring(0, path->Length - suffix->Length)->Trim('/');
+            return String::IsNullOrEmpty(escapedName)
+                ? nullptr
+                : Uri::UnescapeDataString(escapedName);
+        }
+
         static String^ ModuleChildUri(String^ name, String^ child)
         {
             return ModuleUri(name) + "/" + child;
@@ -2269,6 +2702,7 @@ namespace x64dbgMCP {
             info->Links["sections"] = Helpers::UriLink(ModuleChildUri(info->Name, "sections"));
             info->Links["exports"] = Helpers::UriLink(ModuleChildUri(info->Name, "exports"));
             info->Links["imports"] = Helpers::UriLink(ModuleChildUri(info->Name, "imports"));
+            info->Links["strings"] = Helpers::UriLink(ModuleChildUri(info->Name, "strings"));
             if (module.entry != 0)
             {
                 auto args = gcnew Dictionary<String^, Object^>();
