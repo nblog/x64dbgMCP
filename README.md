@@ -36,10 +36,7 @@ Suited for exploratory navigation. Agents can address these directly by URI.
 
 `modules/{name}/strings` follows x64dbg `strref` semantics: it scans the module's instructions,
 resolves static value/memory operands, and returns the referencing instruction, target string
-address, disassembly, decoded string, encoding, and character length. It is not an arbitrary
-memory-string table. `offset` defaults to `0`, `limit` defaults to `100` (clamped to `1..100`),
-and `length` is the minimum decoded character count (default `4`, allowed `3..512`). Decoding
-tries UTF-16LE, strict UTF-8, and the current Windows ANSI code page in that order.
+address, disassembly, decoded string, encoding, and character length.
 
 ### Rich-param Tools — Hot Path Queries
 
