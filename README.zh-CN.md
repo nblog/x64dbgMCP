@@ -26,12 +26,19 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 | `x64dbg://modules/{name}/sections` | 模块节表 |
 | `x64dbg://modules/{name}/exports` | 导出表 |
 | `x64dbg://modules/{name}/imports` | 导入表 |
+| `x64dbg://modules/{name}/strings{?offset,limit,length}` | 模块字符串引用分页扫描 |
 | `x64dbg://functions` | 函数信息 |
 | `x64dbg://symbols` | 符号信息 |
 | `x64dbg://labels` | 标签信息 |
 | `x64dbg://comments` | 注释信息 |
 | `x64dbg://bookmarks` | 书签信息 |
 | `x64dbg://breakpoints` | 断点信息 |
+
+`modules/{name}/strings` 遵循 x64dbg `strref` 语义：扫描模块指令，解析静态值/内存操作数，
+返回引用指令、目标字符串地址、反汇编、解码后的字符串、编码和字符长度。它不是任意内存
+字符串表。`offset` 默认 `0`，`limit` 默认 `100`（限制在 `1..100`），`length` 表示最小解码
+字符数（默认 `4`，允许 `3..512`）。解码顺序固定为 UTF-16LE、严格 UTF-8、当前 Windows
+ANSI 代码页。
 
 ### Rich-param Tools — 热路径查询
 
