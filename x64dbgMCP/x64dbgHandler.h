@@ -3161,7 +3161,7 @@ namespace x64dbgMCP {
             "  StepInto    : single-step into\n"
             "  StepOver    : single-step over calls\n"
             "  StepOut     : run until current function returns\n"
-            "  run_command : { command, wait? } -- raw x64dbg command (https://help.x64dbg.com/en/latest/commands/index.html); wait=true uses DbgCmdExecDirect\n"
+            "  run_command : { command, wait? } -- raw x64dbg command (https://github.com/x64dbg/x64dbg/blob/2026.05.27/src/dbg/x64dbg.cpp#L110); wait=true uses DbgCmdExecDirect\n"
         )]
         static Object^ DebugControl(
             [Description("Action: \"run\"|\"pause\"|\"stop\"|\"StepInto\"|\"StepOver\"|\"StepOut\"|\"init\"|\"attach\"|\"run_command\"")]
