@@ -1384,6 +1384,20 @@ namespace x64dbgMCP {
         return true;
     }
 
+    static bool TryShowMainWindowWithoutActivation(DebugGUIContext* context)
+    {
+        HWND window = GuiGetWindowHandle();
+        if (!window || !IsWindow(window))
+        {
+            context->error = "GuiGetWindowHandle returned no valid x64dbg window";
+            return false;
+        }
+
+        // SW_SHOWNOACTIVATE restores a minimized window while preserving the current foreground window.
+        ShowWindow(window, SW_SHOWNOACTIVATE);
+        return true;
+    }
+
     static void ExecuteDebugGUIOnGuiThread(void* userData)
     {
         auto context = static_cast<DebugGUIContext*>(userData);
@@ -1394,22 +1408,30 @@ namespace x64dbgMCP {
                 context->failure = DebugGUIFailure::NotAttached;
                 context->error = "no active debug session";
             }
-            else if (context->action == DebugGUIWorkAction::Snapshot)
+            else if (context->action == DebugGUIWorkAction::Snapshot
+                || context->action == DebugGUIWorkAction::Focus)
             {
-                Script::Gui::Refresh();
-                GuiProcessEvents();
-                context->success = CaptureMainWindowPng(context);
-                if (!context->success)
+                if (!TryShowMainWindowWithoutActivation(context))
+                {
                     context->failure = DebugGUIFailure::X64dbgFailed;
-            }
-            else if (context->action == DebugGUIWorkAction::Focus)
-            {
-                GuiShowCpu();
-                GuiProcessEvents();
-                GuiFocusView(context->selectionWindow);
-                Script::Gui::Refresh();
-                GuiProcessEvents();
-                context->success = true;
+                }
+                else if (context->action == DebugGUIWorkAction::Snapshot)
+                {
+                    Script::Gui::Refresh();
+                    GuiProcessEvents();
+                    context->success = CaptureMainWindowPng(context);
+                    if (!context->success)
+                        context->failure = DebugGUIFailure::X64dbgFailed;
+                }
+                else
+                {
+                    GuiShowCpu();
+                    GuiProcessEvents();
+                    GuiFocusView(context->selectionWindow);
+                    Script::Gui::Refresh();
+                    GuiProcessEvents();
+                    context->success = true;
+                }
             }
             else if (context->action == DebugGUIWorkAction::Get)
             {

@@ -18,6 +18,7 @@ Suited for exploratory navigation. Agents can address these directly by URI.
 | `x64dbg://logging` | Log window info |
 | `x64dbg://threads` | Thread list |
 | `x64dbg://memory/maps` | Memory map |
+| `x64dbg://memory/{address}/strings{?offset,limit,length}` | Paged string-reference scan for the containing memory region |
 | `x64dbg://modules` | Loaded module list |
 | `x64dbg://windows` | Debuggee window list |
 | `x64dbg://handles` | Debuggee handle list |
@@ -27,7 +28,6 @@ Suited for exploratory navigation. Agents can address these directly by URI.
 | `x64dbg://modules/{name}/exports` | Export table |
 | `x64dbg://modules/{name}/imports` | Import table |
 | `x64dbg://modules/{name}/strings{?offset,limit,length}` | Paged string-reference scan for the module |
-| `x64dbg://memory/{address}/strings{?offset,limit,length}` | Paged string-reference scan for the containing memory region |
 | `x64dbg://functions` | Function info |
 | `x64dbg://symbols` | Symbol info |
 | `x64dbg://labels` | Label info |
@@ -35,7 +35,7 @@ Suited for exploratory navigation. Agents can address these directly by URI.
 | `x64dbg://bookmarks` | Bookmark info |
 | `x64dbg://breakpoints` | Breakpoint info |
 
-`modules/{name}/strings` follows x64dbg `strref` semantics: it scans the module's instructions,
+`.../strings` follows x64dbg `strref` semantics: it scans the module's instructions,
 resolves static value/memory operands, and returns the referencing instruction, target string
 address, disassembly, decoded string, encoding, and character length.
 

@@ -18,6 +18,7 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 | `x64dbg://logging` | 日志窗口信息 |
 | `x64dbg://threads` | 线程列表 |
 | `x64dbg://memory/maps` | 内存映射 |
+| `x64dbg://memory/{address}/strings{?offset,limit,length}` | 指定地址所在内存区域的字符串引用分页扫描 |
 | `x64dbg://modules` | 加载模块列表 |
 | `x64dbg://windows` | 调试进程窗口列表 |
 | `x64dbg://handles` | 调试进程句柄列表 |
@@ -27,7 +28,6 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 | `x64dbg://modules/{name}/exports` | 导出表 |
 | `x64dbg://modules/{name}/imports` | 导入表 |
 | `x64dbg://modules/{name}/strings{?offset,limit,length}` | 模块字符串引用分页扫描 |
-| `x64dbg://memory/{address}/strings{?offset,limit,length}` | 指定地址所在内存区域的字符串引用分页扫描 |
 | `x64dbg://functions` | 函数信息 |
 | `x64dbg://symbols` | 符号信息 |
 | `x64dbg://labels` | 标签信息 |
@@ -35,7 +35,7 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 | `x64dbg://bookmarks` | 书签信息 |
 | `x64dbg://breakpoints` | 断点信息 |
 
-`modules/{name}/strings` 遵循 x64dbg `strref` 语义：扫描模块指令，解析静态值/内存操作数，
+`.../strings` 遵循 x64dbg `strref` 语义：扫描模块指令，解析静态值/内存操作数，
 返回引用指令、目标字符串地址、反汇编、解码后的字符串、编码和字符长度。
 
 ### Rich-param Tools — 热路径查询
