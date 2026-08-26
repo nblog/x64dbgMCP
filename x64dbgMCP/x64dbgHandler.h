@@ -1599,8 +1599,8 @@ namespace x64dbgMCP {
 
     // Shared range-based string-reference scanner. It mirrors x64dbg's strref
     // operand walk, but keeps the result in memory instead of mutating the GUI
-    // Reference View. A future memory strings Resource can reuse this class by
-    // supplying a different start/rangeSize pair.
+    // Reference View. Module and memory Resources supply their own start/rangeSize
+    // pair while sharing this scanner and decoder.
     ref class StringDecodeResult sealed
     {
     public:
@@ -2350,6 +2350,82 @@ namespace x64dbgMCP {
         }
 #pragma warning(pop)
 
+#pragma warning(push)
+#pragma warning(disable: 4965)
+        [McpServerResource(UriTemplate = "x64dbg://memory/{address}/strings{?offset,limit,length}", Name = "memory-strings", MimeType = "application/json")]
+        [Description("Paged string-reference rows for the complete memory region containing an x64dbg address expression.")]
+        static ResourceContents^ MemoryStrings(RequestContext<ReadResourceRequestParams^>^ requestContext)
+        {
+            String^ requestUri = requestContext != nullptr && requestContext->Params != nullptr
+                ? requestContext->Params->Uri
+                : "x64dbg://memory/unknown/strings";
+            String^ addressText = MemoryStringsAddressFromUri(requestUri);
+            if (String::IsNullOrWhiteSpace(addressText))
+                throw gcnew NotSupportedException("Unknown memory strings URI: " + requestUri);
+
+            duint address = 0;
+            if (!Helpers::ResolveExpression(addressText, address))
+                throw gcnew ArgumentException("address must resolve as an x64dbg expression: " + addressText);
+
+            duint regionSize = 0;
+            duint regionBase = DbgMemFindBaseAddr(address, &regionSize);
+            if (!regionBase || !regionSize || address < regionBase
+                || address - regionBase >= regionSize || !DbgMemIsValidReadPtr(address))
+                throw gcnew NotSupportedException(
+                    "Address is not in a readable memory region: " + Helpers::FormatAddress(address));
+
+            duint scanStart = regionBase;
+            duint scanSize = regionSize;
+
+            int pageOffset = Math::Max(0, QueryInt(requestUri, "offset", 0));
+            int pageLimit = Math::Min(Math::Max(1, QueryInt(requestUri, "limit", 100)), 100);
+            int minimumLength = QueryInt(requestUri, "length", StringScanner::DefaultMinimumLength);
+            if (minimumLength < StringScanner::MinimumAllowedLength
+                || minimumLength > StringScanner::MaximumLength)
+                throw gcnew ArgumentException("length must be in [3, 512]");
+
+            bool truncated = false;
+            auto all = StringScanner::ScanReferences(
+                scanStart,
+                scanSize,
+                minimumLength,
+                truncated);
+
+            auto payload = gcnew StringReferencesPayload();
+            payload->Data = gcnew List<StringReferenceEntry^>();
+            payload->Page = gcnew PageInfo();
+            payload->Page->Offset = pageOffset;
+            payload->Page->Limit = pageLimit;
+            payload->Page->Total = all->Count;
+            payload->Truncated = truncated;
+            payload->ScanStart = Helpers::FormatAddress(scanStart);
+            payload->ScanSize = Helpers::FormatAddress(scanSize);
+            payload->MinimumLength = minimumLength;
+            payload->Links = gcnew Dictionary<String^, LinkRef^>();
+
+            String^ canonicalAddress = addressText;
+            payload->Links["self"] = Helpers::UriLink(
+                MemoryStringsUri(canonicalAddress, pageOffset, pageLimit, minimumLength));
+            payload->Links["memory_maps"] = Helpers::UriLink("x64dbg://memory/maps");
+            payload->Links["session"] = Helpers::UriLink("x64dbg://session");
+
+            int begin = Math::Min(pageOffset, all->Count);
+            int end = Math::Min(all->Count, pageOffset + pageLimit);
+            for (int i = begin; i < end; i++)
+                payload->Data->Add(all[i]);
+
+            payload->Page->HasMore = end < all->Count;
+            if (payload->Page->HasMore)
+                payload->Links["next"] = Helpers::UriLink(
+                    MemoryStringsUri(canonicalAddress, pageOffset + pageLimit, pageLimit, minimumLength));
+            if (pageOffset > 0)
+                payload->Links["prev"] = Helpers::UriLink(
+                    MemoryStringsUri(canonicalAddress, Math::Max(0, pageOffset - pageLimit), pageLimit, minimumLength));
+
+            return MakeJson(payload, requestUri);
+        }
+#pragma warning(pop)
+
         [McpServerResource(UriTemplate = "x64dbg://memory/maps", Name = "memory-maps", MimeType = "application/json")]
         [Description("Memory map for the debugged process with readable protection, state, and type values.")]
         static ResourceContents^ MemoryMaps()
@@ -2595,12 +2671,13 @@ namespace x64dbgMCP {
         }
 
     private:
-        static int QueryInt(String^ uri, String^ name, int fallback)
+        static String^ QueryValue(String^ uri, String^ name, [Out] bool% supplied)
         {
+            supplied = false;
             auto parsed = gcnew Uri(uri);
             String^ query = parsed->Query;
             if (String::IsNullOrEmpty(query))
-                return fallback;
+                return nullptr;
 
             for each (String^ pair in query->Substring(1)->Split(L'&'))
             {
@@ -2609,14 +2686,22 @@ namespace x64dbgMCP {
                 if (Uri::UnescapeDataString(key) != name)
                     continue;
 
+                supplied = true;
                 String^ value = separator < 0 ? "" : pair->Substring(separator + 1);
-                return Int32::Parse(
-                    Uri::UnescapeDataString(value),
-                    NumberStyles::Integer,
-                    CultureInfo::InvariantCulture);
+                return Uri::UnescapeDataString(value);
             }
 
-            return fallback;
+            return nullptr;
+        }
+
+        static int QueryInt(String^ uri, String^ name, int fallback)
+        {
+            bool supplied = false;
+            String^ value = QueryValue(uri, name, supplied);
+            if (!supplied)
+                return fallback;
+
+            return Int32::Parse(value, NumberStyles::Integer, CultureInfo::InvariantCulture);
         }
 
         static String^ ModuleUri(String^ name)
@@ -2646,6 +2731,17 @@ namespace x64dbgMCP {
                 ModuleUri(name), offset, limit, minimumLength);
         }
 
+        static String^ MemoryStringsUri(
+            String^ address,
+            int offset,
+            int limit,
+            int minimumLength)
+        {
+            return String::Format(
+                "x64dbg://memory/{0}/strings?offset={1}&limit={2}&length={3}",
+                Uri::EscapeDataString(address), offset, limit, minimumLength);
+        }
+
         static String^ ModuleStringsNameFromUri(String^ requestUri)
         {
             if (String::IsNullOrWhiteSpace(requestUri))
@@ -2655,15 +2751,35 @@ namespace x64dbgMCP {
             if (!String::Equals(parsed->Host, "modules", StringComparison::OrdinalIgnoreCase))
                 return nullptr;
 
-            String^ path = parsed->AbsolutePath->Trim('/');
+            String^ path = parsed->AbsolutePath->Trim(L'/');
             String^ suffix = "/strings";
             if (!path->EndsWith(suffix, StringComparison::OrdinalIgnoreCase))
                 return nullptr;
 
-            String^ escapedName = path->Substring(0, path->Length - suffix->Length)->Trim('/');
+            String^ escapedName = path->Substring(0, path->Length - suffix->Length)->Trim(L'/');
             return String::IsNullOrEmpty(escapedName)
                 ? nullptr
                 : Uri::UnescapeDataString(escapedName);
+        }
+
+        static String^ MemoryStringsAddressFromUri(String^ requestUri)
+        {
+            if (String::IsNullOrWhiteSpace(requestUri))
+                return nullptr;
+
+            auto parsed = gcnew Uri(requestUri);
+            if (!String::Equals(parsed->Host, "memory", StringComparison::OrdinalIgnoreCase))
+                return nullptr;
+
+            String^ path = parsed->AbsolutePath->Trim(L'/');
+            String^ suffix = "/strings";
+            if (!path->EndsWith(suffix, StringComparison::OrdinalIgnoreCase))
+                return nullptr;
+
+            String^ escapedAddress = path->Substring(0, path->Length - suffix->Length)->Trim(L'/');
+            return String::IsNullOrEmpty(escapedAddress)
+                ? nullptr
+                : Uri::UnescapeDataString(escapedAddress);
         }
 
         static String^ ModuleChildUri(String^ name, String^ child)

@@ -272,8 +272,7 @@ Reference View.
 `length` query value is the minimum decoded character count, defaults to `4`, and must be in
 `3..512`. It is deliberately separate from the module scan byte range: the full loaded module
 `base/size` is scanned, while each candidate string is read until NUL or the internal 512-byte
-probe limit. A future `x64dbg://memory/{address}/strings` Resource will reuse the same scanner
-with a separately resolved range size.
+probe limit.
 
 ```cpp
 public ref class StringReferenceEntry
@@ -305,6 +304,24 @@ then strict UTF-8, then the current Windows ANSI code page from `GetACP()`. Inva
 embedded control characters, and candidates that cannot be bounded by a NUL or the internal
 probe limit are discarded; candidates shorter than `length` are also discarded. Unknown module
 names fail the resource request in the same way as the other module child Resources.
+
+### `x64dbg://memory/{address}/strings{?offset,limit,length}` 🟡
+
+Returns the same paged string-reference rows for the memory region containing `address`. The
+path value is an x64dbg expression, not necessarily the string address; accepted forms follow
+[the address-expression rule](conventions.md#2-address--expression-inputs), for example
+`0x7FF711030000`, `cip`, or `mem.base(cip)`. The resolved region base and complete region size
+are scanned, matching x64dbg `strref`'s default `CURRENT_REGION` behavior; `scanStart` and
+`scanSize` report that resolved range. The scanner's range size is intentionally not an MCP
+query parameter, so it cannot be confused with the `length` filter below.
+
+`offset`, `limit`, and `length` have the same defaults and bounds as the module Resource:
+`offset=0`, `limit=100` clamped to `1..100`, and `length=4` constrained to `3..512`. The
+payload shape, decoder order, 5000-row safety cap, and `_links` pagination semantics are shared
+with `modules/{name}/strings`; the memory Resource links to `x64dbg://memory/maps` and
+`x64dbg://session` instead of a module root. An expression that cannot be resolved or does not
+belong to a readable memory region fails the read; the Resource does not silently reinterpret an
+invalid address as an empty scan.
 
 ### `x64dbg://memory/maps` 🟢
 

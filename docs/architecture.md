@@ -112,7 +112,7 @@ The MCP-visible surface is split into three forms based on access pattern. Detai
 
 | Form | When | Examples |
 |---|---|---|
-| **Resource** (`[McpServerResource]`) | Read-only bulk snapshots and collection navigation | `x64dbg://logging`, `x64dbg://modules`, `x64dbg://modules/{name}/sections`, `x64dbg://modules/{name}/strings`, `x64dbg://memory/maps`, `x64dbg://windows`, `x64dbg://handles`, `x64dbg://tcpconnections` |
+| **Resource** (`[McpServerResource]`) | Read-only bulk snapshots and collection navigation | `x64dbg://logging`, `x64dbg://modules`, `x64dbg://modules/{name}/sections`, `x64dbg://modules/{name}/strings`, `x64dbg://memory/{address}/strings`, `x64dbg://memory/maps`, `x64dbg://windows`, `x64dbg://handles`, `x64dbg://tcpconnections` |
 | **Rich-param Tool** (`[McpServerTool]`) | Focused operations over one target or a bounded hot-path window | `disassemble(addr, count)`, `find_pattern(pattern, maxResults)`, `assemble(addr, instruction)` |
 | **Action-mega Tool** (`[McpServerTool]` with `action` enum) | Fine-grained per-item reads/updates and debugger control clusters | `labels{get/set/delete + batch}`, `debug_control{init/attach/run/pause/Step*}`, `breakpoints{get/set/delete + batch}`, `memory{read/write/alloc/free}`, `debug_gui{snapshot/focus/get/set}` |
 
@@ -120,11 +120,13 @@ A Resource and Tool may cover the same domain when their access patterns differ:
 
 `x64dbg://logging` is backed by `GuiLogSave`, the upstream API for snapshotting the rendered Log view. Because that API accepts only a filename, each read marshals the save to the GUI thread, materializes a unique host temporary file, reads it as UTF-8, and immediately deletes it after the successful read. x64dbg stops the LogView flush timer while the Log tab is hidden, so messages still in its private pending buffer are not part of the rendered document until upstream displays the tab and flushes them.
 
-The module strings Resource uses a shared range-based string-reference scanner. It walks the
-module with x64dbg fast-disassembly, checks static value/memory operands, and decodes each target
-with the fixed UTF-16LE → strict UTF-8 → current ANSI code-page order. The scanner is independent
-of `strref` and the GUI Reference View so the same range/decoder abstraction can later back a
-memory-address strings Resource without sharing GUI state.
+The module and memory strings Resources use a shared range-based string-reference scanner. They
+walk their resolved ranges with x64dbg fast-disassembly, check static value/memory operands, and
+decode each target with the fixed UTF-16LE → strict UTF-8 → current ANSI code-page order. The
+scanner is independent of `strref` and the GUI Reference View. The module Resource supplies a
+module base/size; the memory Resource resolves an expression to its containing region and scans
+that complete region. The internal range size is not exposed as a second query parameter;
+both Resources use `length` only for the minimum decoded character filter.
 
 The `enableDebugging` flag on `McpServerHost::Start` controls whether the debugger-domain `McpDebuggingTools` catalog is registered. Its purpose is to keep execution control, breakpoints, registers, memory operations, thread control, assembly, logging, and GUI evidence operations from inflating every agent's tool schema. It is **not** a general read/write or authorization boundary: analysis-domain tools may update x64dbg analysis metadata while remaining in the always-registered `McpAnalysisTools` catalog.
 

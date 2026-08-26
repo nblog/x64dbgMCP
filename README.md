@@ -27,6 +27,7 @@ Suited for exploratory navigation. Agents can address these directly by URI.
 | `x64dbg://modules/{name}/exports` | Export table |
 | `x64dbg://modules/{name}/imports` | Import table |
 | `x64dbg://modules/{name}/strings{?offset,limit,length}` | Paged string-reference scan for the module |
+| `x64dbg://memory/{address}/strings{?offset,limit,length}` | Paged string-reference scan for the containing memory region |
 | `x64dbg://functions` | Function info |
 | `x64dbg://symbols` | Symbol info |
 | `x64dbg://labels` | Label info |
