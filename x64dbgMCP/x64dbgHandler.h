@@ -2108,13 +2108,16 @@ namespace x64dbgMCP {
 
 #pragma warning(push)
 #pragma warning(disable: 4965)
-        [McpServerResource(UriTemplate = "x64dbg://attach/processes{?offset,limit}", Name = "attach-processes", MimeType = "application/json")]
-        [Description("Paged snapshot of the same filtered process candidates shown by x64dbg's Attach dialog.")]
+        [McpServerResource(UriTemplate = "x64dbg://attach/processes{?filter,offset,limit}", Name = "attach-processes", MimeType = "application/json")]
+        [Description("Paged snapshot of x64dbg Attach candidates, optionally filtered by a case-insensitive substring of name, title, path, or command-line arguments.")]
         static ResourceContents^ AttachProcesses(RequestContext<ReadResourceRequestParams^>^ requestContext)
         {
             String^ requestUri = requestContext != nullptr && requestContext->Params != nullptr
                 ? requestContext->Params->Uri
                 : "x64dbg://attach/processes";
+            bool filterSupplied = false;
+            String^ filter = QueryValue(requestUri, "filter", filterSupplied);
+            bool applyFilter = !String::IsNullOrEmpty(filter);
             int pageOffset = Math::Max(0, QueryInt(requestUri, "offset", 0));
             int pageLimit = Math::Min(Math::Max(1, QueryInt(requestUri, "limit", 100)), 100);
 
@@ -2124,19 +2127,17 @@ namespace x64dbgMCP {
             payload->Page->Offset = pageOffset;
             payload->Page->Limit = pageLimit;
             payload->Links = gcnew Dictionary<String^, LinkRef^>();
-            payload->Links["self"] = Helpers::UriLink(AttachProcessesPageUri(pageOffset, pageLimit));
+            payload->Links["self"] = Helpers::UriLink(AttachProcessesPageUri(pageOffset, pageLimit, filter));
             payload->Links["session"] = Helpers::UriLink("x64dbg://session");
 
+            auto matches = gcnew List<AttachProcessInfo^>();
             DBGPROCESSINFO* entries = nullptr;
             int count = 0;
             if (DbgFunctions()->GetProcessList(&entries, &count))
             {
-                payload->Page->Total = count;
                 try
                 {
-                    int start = Math::Min(pageOffset, count);
-                    int end = Math::Min(count, start + pageLimit);
-                    for (int i = start; i < end; i++)
+                    for (int i = 0; i < count; i++)
                     {
                         auto item = gcnew AttachProcessInfo();
                         item->ProcessId = (int)entries[i].dwProcessId;
@@ -2147,7 +2148,15 @@ namespace x64dbgMCP {
                         item->Name = firstDot >= 0 ? fileName->Substring(0, firstDot) : fileName;
                         item->Title = Helpers::FromCStr(entries[i].szExeMainWindowTitle);
                         item->CommandLineArguments = Helpers::FromCStr(entries[i].szExeArgs);
-                        payload->Data->Add(item);
+
+                        if (!applyFilter
+                            || item->Name->IndexOf(filter, StringComparison::OrdinalIgnoreCase) >= 0
+                            || item->Title->IndexOf(filter, StringComparison::OrdinalIgnoreCase) >= 0
+                            || item->Path->IndexOf(filter, StringComparison::OrdinalIgnoreCase) >= 0
+                            || item->CommandLineArguments->IndexOf(filter, StringComparison::OrdinalIgnoreCase) >= 0)
+                        {
+                            matches->Add(item);
+                        }
                     }
                 }
                 finally
@@ -2160,12 +2169,18 @@ namespace x64dbgMCP {
                 BridgeFree(entries);
             }
 
-            int returnedThrough = Math::Min(pageOffset, payload->Page->Total) + payload->Data->Count;
+            payload->Page->Total = matches->Count;
+            int start = Math::Min(pageOffset, payload->Page->Total);
+            int end = Math::Min(payload->Page->Total, start + pageLimit);
+            for (int i = start; i < end; i++)
+                payload->Data->Add(matches[i]);
+
+            int returnedThrough = start + payload->Data->Count;
             payload->Page->HasMore = returnedThrough < payload->Page->Total;
             if (payload->Page->HasMore)
-                payload->Links["next"] = Helpers::UriLink(AttachProcessesPageUri(pageOffset + pageLimit, pageLimit));
+                payload->Links["next"] = Helpers::UriLink(AttachProcessesPageUri(pageOffset + pageLimit, pageLimit, filter));
             if (pageOffset > 0)
-                payload->Links["prev"] = Helpers::UriLink(AttachProcessesPageUri(Math::Max(0, pageOffset - pageLimit), pageLimit));
+                payload->Links["prev"] = Helpers::UriLink(AttachProcessesPageUri(Math::Max(0, pageOffset - pageLimit), pageLimit, filter));
 
             return MakeJson(payload, requestUri);
         }
@@ -2736,9 +2751,14 @@ namespace x64dbgMCP {
             return String::Format("x64dbg://breakpoints?offset={0}&limit={1}", offset, limit);
         }
 
-        static String^ AttachProcessesPageUri(int offset, int limit)
+        static String^ AttachProcessesPageUri(int offset, int limit, String^ filter)
         {
-            return String::Format("x64dbg://attach/processes?offset={0}&limit={1}", offset, limit);
+            if (String::IsNullOrEmpty(filter))
+                return String::Format("x64dbg://attach/processes?offset={0}&limit={1}", offset, limit);
+
+            return String::Format(
+                "x64dbg://attach/processes?filter={0}&offset={1}&limit={2}",
+                Uri::EscapeDataString(filter), offset, limit);
         }
 
         static String^ ModulesPageUri(int offset, int limit)

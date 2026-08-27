@@ -127,12 +127,16 @@ The MCP Resource metadata name is `session-debuggee`; its fixed canonical URI re
 This Resource replaces the former `x64dbg://process` URI. The old URI is not retained as an
 alias because two equivalent Resources would violate ADR-003's no-duplicate-operation rule.
 
-### `x64dbg://attach/processes{?offset,limit}` 🟢
+### `x64dbg://attach/processes{?filter,offset,limit}` 🟢
 
 Paged snapshot of the processes offered by x64dbg's Attach dialog. It is available without an
-active debug session. `offset` defaults to `0`; `limit` defaults to `100` and is clamped to
-`1–100`. Pagination is applied to one `DbgFunctions()->GetProcessList` snapshot; process creation
-and exit can change subsequent pages.
+active debug session. `filter` is an optional literal substring matched case-insensitively against
+each candidate's `name`, `title`, `path`, and `commandLineArguments`; a candidate is included when
+any one of those fields contains the filter, and is included only once when multiple fields match.
+An omitted or empty `filter` leaves the native candidate set unchanged. `offset` defaults to `0`;
+`limit` defaults to `100` and is clamped to `1–100`. Filtering is applied to one
+`DbgFunctions()->GetProcessList` snapshot before pagination, so `page.total` and the navigation
+links describe the filtered set. Process creation and exit can change subsequent snapshots.
 
 The native list is already filtered by x64dbg: it excludes the debugger itself, PID 0/4,
 processes that cannot be opened for query and memory read, and processes whose architecture does
@@ -169,7 +173,8 @@ x64dbg's Attach dialog. Upstream normally attempts to remove the executable from
 line, but the matching is best-effort and case-sensitive. The value can therefore contain an
 `ARG_GET_ERROR` diagnostic or a partial executable prefix when the image path/name does not match
 the command line exactly. The Resource does not independently re-read or normalize every
-candidate's remote command line.
+candidate's remote command line. The Resource's `filter` uses this exposed parsed value; it does
+not introduce a separate full-command-line read.
 
 ### `x64dbg://modules` 🟢
 
