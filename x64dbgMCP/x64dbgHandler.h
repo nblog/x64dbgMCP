@@ -779,6 +779,25 @@ namespace x64dbgMCP {
         property List<DisassembleEntry^>^ Data;
     };
 
+    public ref class XrefEntry
+    {
+    public:
+        [JsonPropertyName("address")] property String^ Address;
+        [JsonPropertyName("disassembly")] property String^ Disassembly;
+        [JsonPropertyName("matchKind")] property String^ MatchKind;
+        [JsonPropertyName("matchedValue")] property String^ MatchedValue;
+    };
+
+    public ref class XrefsResult : McpResult
+    {
+    public:
+        [JsonPropertyName("targetStart")] property String^ TargetStart;
+        [JsonPropertyName("targetEnd")] property String^ TargetEnd;
+        [JsonPropertyName("scanStart")] property String^ ScanStart;
+        [JsonPropertyName("scanSize")] property String^ ScanSize;
+        [JsonPropertyName("data")] property List<XrefEntry^>^ Data;
+    };
+
     public ref class MemoryReadResult : McpResult
     {
     public:
@@ -3040,6 +3059,197 @@ namespace x64dbgMCP {
 
             r->Success = true;
             return r;
+        }
+
+        [McpServerTool(ReadOnly = true)]
+        [Description(
+            "Find references with x64dbg's Ctrl+R/reffindrange-style snapshot scan. "
+            "The scan decodes the current memory snapshot and does not use the analyzed XREF database or GUI Reference View.")]
+        static XrefsResult^ Xrefs(
+            [Description("Action: \"find\" (the former analyzed-database actions are intentionally removed)")]
+            String^ action,
+            [Description("Target address or x64dbg expression (required)")]
+            String^ addr,
+            [Description("Inclusive target end address; omission means the same value as addr")]
+            [DefaultValue("")]
+            String^ end,
+            [Description("Scan start address or expression; omission uses the current instruction pointer (cip)")]
+            [DefaultValue("")]
+            String^ scanAddr,
+            [Description("Scan byte count; 0 uses the containing memory region and is capped at 64 MiB")]
+            [DefaultValue(0)]
+            int scanSize)
+        {
+            auto result = gcnew XrefsResult();
+            result->Data = gcnew List<XrefEntry^>();
+
+            if (action != "find")
+                return XrefsError(result, "invalid_argument", "unknown action: " + (action ? action : "<null>") + "; expected find");
+            if (!DbgIsDebugging())
+                return XrefsError(result, "not_attached", "no active debug session");
+            if (String::IsNullOrWhiteSpace(addr))
+                return XrefsError(result, "invalid_argument", "addr is required for action=find");
+            if (scanSize < 0)
+                return XrefsError(result, "invalid_argument", "scanSize must be non-negative");
+            const duint maxScan = (duint)64 * 1024 * 1024;
+            if ((duint)scanSize > maxScan)
+                return XrefsError(result, "invalid_argument", "scanSize must not exceed 67108864 bytes");
+
+            duint targetStart = 0;
+            if (!Helpers::ResolveExpression(addr, targetStart))
+                return XrefsError(result, "not_found", "could not resolve target address: " + addr);
+            duint targetEnd = targetStart;
+            if (!String::IsNullOrWhiteSpace(end) && !Helpers::ResolveExpression(end, targetEnd))
+                return XrefsError(result, "not_found", "could not resolve target end address: " + end);
+            if (targetEnd < targetStart)
+                return XrefsError(result, "invalid_argument", "end must be greater than or equal to addr");
+
+            duint scanAddress = 0;
+            if (String::IsNullOrWhiteSpace(scanAddr))
+            {
+                if (!Helpers::ResolveExpression("cip", scanAddress))
+                    return XrefsError(result, "not_found", "could not resolve current instruction pointer (cip)");
+            }
+            else if (!Helpers::ResolveExpression(scanAddr, scanAddress))
+            {
+                return XrefsError(result, "not_found", "could not resolve scanAddr: " + scanAddr);
+            }
+
+            duint regionSize = 0;
+            duint regionBase = DbgMemFindBaseAddr(scanAddress, &regionSize);
+            if (regionBase == 0 || regionSize == 0 || scanAddress < regionBase)
+                return XrefsError(result, "not_found", "scan address is not inside a memory region: " + Helpers::FormatAddress(scanAddress));
+
+            duint regionEnd = regionBase + regionSize;
+            if (regionEnd < regionBase)
+                regionEnd = (duint)-1;
+            if (scanAddress >= regionEnd)
+                return XrefsError(result, "not_found", "scan address is not inside a memory region: " + Helpers::FormatAddress(scanAddress));
+            duint available = regionEnd - scanAddress;
+            duint requested = scanSize == 0 ? regionSize : (duint)scanSize;
+            if (scanSize == 0)
+            {
+                scanAddress = regionBase;
+                available = regionSize;
+            }
+            if (requested == 0)
+                return XrefsError(result, "invalid_argument", "scan range is empty");
+            if (requested > available)
+                requested = available;
+            if (requested > maxScan)
+                requested = maxScan;
+            if (requested == 0)
+                return XrefsError(result, "invalid_argument", "scan range is too large");
+
+            result->TargetStart = Helpers::FormatAddress(targetStart);
+            result->TargetEnd = Helpers::FormatAddress(targetEnd);
+            result->ScanStart = Helpers::FormatAddress(scanAddress);
+            result->ScanSize = Helpers::FormatAddress(requested);
+
+            const DBGFUNCTIONS* functions = DbgFunctions();
+            if (functions == nullptr || functions->DisasmFast == nullptr)
+                return XrefsError(result, "x64dbg_failed", "x64dbg fast disassembler is unavailable");
+
+            std::vector<unsigned char> snapshot((size_t)requested, 0xCC);
+            const duint chunkSize = 0x1000;
+            for (duint offset = 0; offset < requested; )
+            {
+                duint chunk = requested - offset;
+                if (chunk > chunkSize) chunk = chunkSize;
+                if (!DbgMemRead(scanAddress + offset, snapshot.data() + (size_t)offset, chunk))
+                {
+                    // Recover readable bytes around a partial/unreadable page while keeping
+                    // 0xCC for bytes that the bridge cannot read, as RefFindInRange does.
+                    for (duint byteOffset = 0; byteOffset < chunk; byteOffset++)
+                        DbgMemRead(scanAddress + offset + byteOffset,
+                            snapshot.data() + (size_t)offset + (size_t)byteOffset, 1);
+                }
+                offset += chunk;
+            }
+
+            for (duint offset = 0; offset < requested; )
+            {
+                duint current = scanAddress + offset;
+                duint remaining = requested - offset;
+                int instructionSize = 1;
+                BASIC_INSTRUCTION_INFO basicInfo = {};
+                bool decoded = functions->DisasmFast(snapshot.data() + (size_t)offset, current, &basicInfo);
+                if (decoded && basicInfo.size > 0 && (duint)basicInfo.size <= remaining)
+                {
+                    instructionSize = basicInfo.size;
+                    duint matched = 0;
+                    String^ matchKind = nullptr;
+
+                    if ((basicInfo.type & TYPE_VALUE) != 0)
+                    {
+                        duint value = basicInfo.value.value;
+                        if (value >= targetStart && value <= targetEnd)
+                        {
+                            matched = value;
+                            matchKind = "immediate";
+                        }
+                        else
+                        {
+                            duint signBit = sizeof(duint) == 8 ? (duint)0x800000000000ULL : (duint)0x80000000UL;
+                            if ((value & signBit) != 0)
+                            {
+                                duint masked = value;
+                                switch ((int)basicInfo.value.size)
+                                {
+                                case size_byte:  masked &= 0xFF; break;
+                                case size_word:  masked &= 0xFFFF; break;
+                                case size_dword: masked &= 0xFFFFFFFF; break;
+                                default: break;
+                                }
+                                if (masked >= targetStart && masked <= targetEnd)
+                                {
+                                    matched = masked;
+                                    matchKind = "immediate";
+                                }
+                            }
+                        }
+                    }
+
+                    if (matchKind == nullptr && (basicInfo.type & TYPE_MEMORY) != 0 &&
+                        basicInfo.memory.value >= targetStart && basicInfo.memory.value <= targetEnd)
+                    {
+                        matched = basicInfo.memory.value;
+                        matchKind = "memory";
+                    }
+                    if (matchKind == nullptr && (basicInfo.type & TYPE_ADDR) != 0 &&
+                        basicInfo.addr >= targetStart && basicInfo.addr <= targetEnd)
+                    {
+                        matched = basicInfo.addr;
+                        matchKind = "branch";
+                    }
+
+                    if (matchKind != nullptr)
+                    {
+                        auto entry = gcnew XrefEntry();
+                        entry->Address = Helpers::FormatAddress(current);
+                        entry->Disassembly = Helpers::FromCStr(basicInfo.instruction);
+                        if (entry->Disassembly == nullptr) entry->Disassembly = String::Empty;
+                        entry->MatchKind = matchKind;
+                        entry->MatchedValue = Helpers::FormatAddress(matched);
+                        result->Data->Add(entry);
+                    }
+                }
+
+                if (instructionSize < 1 || (duint)instructionSize > remaining)
+                    instructionSize = 1;
+                offset += (duint)instructionSize;
+            }
+
+            result->Success = true;
+            return result;
+        }
+
+    private:
+        static XrefsResult^ XrefsError(XrefsResult^ result, String^ code, String^ message)
+        {
+            result->Success = false;
+            result->Error = Helpers::MakeError(code, message);
+            return result;
         }
 
     };

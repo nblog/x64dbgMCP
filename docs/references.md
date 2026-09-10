@@ -95,6 +95,8 @@ When implementing a `debug_control` action that maps onto a raw command, consult
 
 - [x64dbg/x64dbg](https://github.com/x64dbg/x64dbg) — main repository
 - [x64dbg pluginsdk source](https://github.com/x64dbg/x64dbg/tree/development/src/dbg/pluginsdk) — authoritative source for pluginsdk headers (compare against vendored copies during SDK upgrades)
+- [`RefFind` / `RefFindInRange`](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/reference.cpp) and [`cbInstrRefFindRange`](https://github.com/x64dbg/x64dbg/blob/9c8ca1cae0b6d56cc44f31fddcb10e3b02ffbb87/src/dbg/commands/cmd-searching.cpp) — x64dbg `2026.05.27` snapshot-first fast-disassembly scan and TYPE_VALUE/TYPE_MEMORY/TYPE_ADDR matching used by the replacement `xrefs{find}` Tool
+- [`reffindrange` command documentation](https://help.x64dbg.com/en/latest/commands/searching/reffindrange.html) — target range, scan address, size, and `$result` semantics
 
 #### x64dbg GUI evidence APIs
 

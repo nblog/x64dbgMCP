@@ -2,7 +2,9 @@
 
 本文件是开发完成度与验证边界的唯一来源。根级 [`README.md`](../README.md) 按最终产品能力描述；目标契约以 [`tools-spec.md`](tools-spec.md) 为准；本文件只回答“代码现在实现了什么、验证到了哪一步、还差什么”。`tools-spec.md` 中的 🟢/🟡/⚪ 表示契约成熟度，不表示代码完成度。
 
-> Snapshot: 2026-08-27，base HEAD `ab16e65` 加上当前未提交工作树变更；`/mcp` 单一 Streamable HTTP endpoint 已完成双架构 Debug 构建、完整部署与 x64/x86 live MCP 路由验收。此前 `disassemble` import 符号化、breakpoints Resource 与 `memory{action:"read"}` 迁移的 x64 专项验收完成于 2026-08-14；breakpoints Tool 的首批 mutation 与统一 `get/disable/delete` 于 2026-08-17 完成 x64 live MCP 专项验收和 x86 build-only 验证；`debug_control{action:"attach"}`、Resource namespace migration 与 attach candidates 于 2026-08-20 分别完成 x64 live MCP + NtObjectManager 闭环和 x86 build-only 验证。`DebugGUI` 已实现并完成 x64 live MCP 验收，x86 已完成构建与部署检查；三类 CPU pane 的 x86 GUI 行为仍待 live 验收。module strings 与 `memory/{address}/strings` 均已完成 x64 live MCP 验证，x86 完成 Debug 构建与部署检查。本次 `attach/processes` 的 `filter` 扩展已完成 x64 CMake 构建、完整部署和 Electron 实例上的 live MCP 闭环；x86 仍完成 Debug 构建检查。统计先以实时 MCP `tools/list`、`resources/list`、`resources/templates/list` 为准，再与 `x64dbgMCP/x64dbgHandler.h` 中的注册和实现交叉核对；不是从根级 README 的产品清单反推。
+> Snapshot: 2026-09-07，base HEAD `df9ad73` 加上当前未提交工作树变更；`/mcp` 单一 Streamable HTTP endpoint 已完成双架构 Debug 构建、完整部署与 x64/x86 live MCP 路由验收。此前 `disassemble` import 符号化、breakpoints Resource 与 `memory{action:"read"}` 迁移的 x64 专项验收完成于 2026-08-14；breakpoints Tool 的首批 mutation 与统一 `get/disable/delete` 于 2026-08-17 完成 x64 live MCP 专项验收和 x86 build-only 验证；`debug_control{action:"attach"}`、Resource namespace migration 与 attach candidates 于 2026-08-20 分别完成 x64 live MCP + NtObjectManager 闭环和 x86 build-only 验证。`DebugGUI` 已实现并完成 x64 live MCP 验收，x86 已完成构建与部署检查；三类 CPU pane 的 x86 GUI 行为仍待 live 验收。module strings 与 `memory/{address}/strings` 均已完成 x64 live MCP 验证，x86 完成 Debug 构建与部署检查。本次 `attach/processes` 的 `filter` 扩展已完成 x64 CMake 构建、完整部署和 Electron 实例上的 live MCP 闭环；x86 仍完成 Debug 构建检查。统计先以实时 MCP `tools/list`、`resources/list`、`resources/templates/list` 为准，再与 `x64dbgMCP/x64dbgHandler.h` 中的注册和实现交叉核对；不是从根级 README 的产品清单反推。
+
+> Update: 2026-09-07 — `xrefs` 已按 ADR-010 替换为 x64dbg Ctrl+R/`reffindrange` 风格的即时快照扫描；旧分析数据库 actions (`list_at/add/count_at/type_at`) 不再属于契约。
 
 ## Coverage
 
@@ -13,9 +15,9 @@
 | Reserved Resources | 5 | 0 | 5 |
 | **All Resources** | **22** | **17** | **5** |
 | Always-registered rich-param Tools | 5 | 1 | 4 |
-| Analysis action-mega Tools | 6 | 0 | 6 |
+| Analysis action-mega Tools | 6 | 1 | 5 |
 | Debugger-domain Tools | 8 | 6 | 2 |
-| **All Tools** | **19** | **7** | **12** |
+| **All Tools** | **19** | **8** | **11** |
 
 ### Runtime catalog
 
@@ -27,13 +29,13 @@
 
 尚未注册的 5 个 reserved Resources 为：`x64dbg://symbols`、`x64dbg://functions`、`x64dbg://labels`、`x64dbg://comments`、`x64dbg://bookmarks`。
 
-实时 `tools/list` 返回 7 个 MCP-visible Tools：常驻的 `disassemble`，以及由调试领域目录门控的 `debug_control`、`breakpoints`、`registers`、`memory`、`logging`、`debug_gui`。`debug_control` 当前在既有 control cluster 中公开 `attach`，平铺参数为 `pid:int` 与 `detach2attach:bool=false`。`breakpoints` 当前公开 `get`、`set`、`set_hardware`、`disable`、`delete`；`get/disable/delete` 以可选 `kind=normal|hardware` 处理同址双断点歧义，旧 `delete_hardware` 已移除。独立 `memory_read` 已从目录移除，`memory` 当前只公开 `read` action。action-mega Tool 的输入 Schema 均直接保留各 action 的平铺参数，没有嵌套 `params`。C++/CLI 方法使用 `PascalCase`，MCP C# SDK 2.1.0 默认把它们派生为上述 `snake_case` wire names。
+实时 `tools/list` 返回 8 个 MCP-visible Tools：常驻的 `disassemble`、`xrefs`，以及由调试领域目录门控的 `debug_control`、`breakpoints`、`registers`、`memory`、`logging`、`debug_gui`。`xrefs` 仅公开 `find` action，执行当前内存快照扫描，不读取分析 XREF 数据库。`debug_control` 当前在既有 control cluster 中公开 `attach`，平铺参数为 `pid:int` 与 `detach2attach:bool=false`。`breakpoints` 当前公开 `get`、`set`、`set_hardware`、`disable`、`delete`；`get/disable/delete` 以可选 `kind=normal|hardware` 处理同址双断点歧义，旧 `delete_hardware` 已移除。独立 `memory_read` 已从目录移除，`memory` 当前只公开 `read` action。action-mega Tool 的输入 Schema 均直接保留各 action 的平铺参数，没有嵌套 `params`。C++/CLI 方法使用 `PascalCase`，MCP C# SDK 2.1.0 默认把它们派生为上述 `snake_case` wire names。
 
-其余 12 个目标 Tool definitions 尚未实现：常驻 rich-param 的 `find_pattern`、`parse_expression`、`get_string_at`、`get_call_stack`；分析 action-mega 的 `symbols`、`functions`、`labels`、`comments`、`bookmarks`、`xrefs`；调试领域的 `threads`、`assemble`。`debug_gui` 的 managed 方法名为 `DebugGUI`，SDK 派生的 MCP wire name 为 `debug_gui`；其 `snapshot/focus/get/set` 已在 `x64dbgHandler.h` 实现并受 `enableDebugging` 门控。`breakpoints` 的 `set_batch`、`delete_batch` 与 `memory` 的 `write`、`alloc`、`free` 仍是 action 级缺口，不重复计为缺失 Tool definitions。寄存器批量读取已由 `registers{action:"dump"}` 实现，契约不再重复保留 `get_register_dump`。
+其余 11 个目标 Tool definitions 尚未实现：常驻 rich-param 的 `find_pattern`、`parse_expression`、`get_string_at`、`get_call_stack`；分析 action-mega 的 `symbols`、`functions`、`labels`、`comments`、`bookmarks`；调试领域的 `threads`、`assemble`。`debug_gui` 的 managed 方法名为 `DebugGUI`，SDK 派生的 MCP wire name 为 `debug_gui`；其 `snapshot/focus/get/set` 已在 `x64dbgHandler.h` 实现并受 `enableDebugging` 门控。`breakpoints` 的 `set_batch`、`delete_batch` 与 `memory` 的 `write`、`alloc`、`free` 仍是 action 级缺口，不重复计为缺失 Tool definitions。寄存器批量读取已由 `registers{action:"dump"}` 实现，契约不再重复保留 `get_register_dump`。
 
 ## Current milestone
 
-当前里程碑实现 [ADR-008](adr/008-mcp-endpoint-path.md)：Kestrel 仍监听 `http://localhost:3001`，唯一 MCP endpoint 改为 `http://localhost:3001/mcp`，根路径不保留 alias；Streamable HTTP 显式使用 stateless mode 并关闭 Legacy SSE。携带 `Origin` 的请求只允许 loopback HTTP(S) origin；无 `Origin` 的非浏览器 MCP 客户端不受影响。
+当前里程碑实现 [ADR-010](adr/010-xrefs-reffind-scan.md) 与 [ADR-008](adr/008-mcp-endpoint-path.md)：`xrefs{action:"find"}` 使用 x64dbg 风格的 snapshot-first 指令扫描；Kestrel 仍监听 `http://localhost:3001`，唯一 MCP endpoint 为 `http://localhost:3001/mcp`，根路径不保留 alias；Streamable HTTP 显式使用 stateless mode 并关闭 Legacy SSE。携带 `Origin` 的请求只允许 loopback HTTP(S) origin；无 `Origin` 的非浏览器 MCP 客户端不受影响。
 
 此前里程碑实现 [ADR-006](adr/006-debug-gui-evidence-capture.md) 的 `debug_gui{snapshot,focus,get,set}`。`snapshot` 在 x64dbg GUI thread 刷新并捕获完整主窗口，通过 WIC 编码为 PNG；省略 `save_path` 时返回 typed JSON text + MCP image block，提供绝对新 `.png` 路径时只创建文件并返回 metadata/path。`focus/get/set` 把 CPU pane 导航、选区、聚焦、刷新、event flush 与回读组合成单个 GUI-thread transaction；`set` 同时返回 resolved requested 和 GUI actual range。截图摘要是 PNG byte-identity anchor，不是签名 provenance 或可信时间戳。
 
@@ -67,6 +69,7 @@
 | LZ4 memory payload | Verified on current x64 | The same 256-byte window compressed to 187 bytes; `LZ4_decompress_safe` returned 256 and the decompressed SHA-256 exactly matched the raw payload |
 | `registers` | Verified on x64 and x86 | Active dump, get, set-to-same-value, architecture-specific register sets, paused inactive-thread dump, missing thread, and running-target `not_paused` paths passed |
 | `debug_control` | Verified on current x64 | Final deployed binary's detached attach to Notepad PID 10316 returned provisional `success:true` with `isDebugging:false`; the first Resource poll converged to `session.isDebugging=true` and `session/debuggee.processId=10316`, with exact path and full command line matching NtObjectManager (x64, non-WOW64, Session 10, unchanged creation time). Earlier attach validation proved `pid=0` rejection, active-session false/omitted rejection, explicit `detach2attach=true` switching between PIDs 11064/36760 while restoring `Engine/DetachOnAttach=0`, and the then-current process Resource retained the old target until a permitted switch. Previous `init/run/pause/stop/StepInto/StepOver/StepOut/run_command(wait=true)` and x32 lifecycle evidence is retained |
+| `xrefs{action:"find"}` | Verified on current x64 | The final production-form x64 plugin was live-verified through the official `-c "mcp.start 3001,localhost,1"` startup path, then attached to Notepad and exercised without running `analxrefs`. A 32-byte window at `0x7FF666524790` found the exact `call 0x7FF666525024` branch reference and both `sub/add rsp,0x28` immediate references; a focused 7-byte window at `0x7FF6665247AC` found `lea rcx, ds:[0x00007FF6666BA480]` as a `memory` match; the default full-region scan normalized to `0x7FF6663C1000` + `0x1FE000` bytes and returned `7703` current-memory matches. Former `list_at` returned `invalid_argument`; reversed target and negative `scanSize` were rejected. The final deployed x64 plugin SHA-256 is `2A039FCD624C37A06578F28BD7525E7C2A449D6CF59AB8B92E4B5C1B4D134DC0`; the x86 Debug plugin was built/deployed with SHA-256 `FF03C98548D7AA5E5FB7B0E73894A9CF7A4C07F86FCBEC40781A67D6C82B3E23` but was not live-run. `reffindrange` GUI parity row-count was not independently captured because this release's Reference View is GUI-global; the structured rows were compared against the same instruction bytes/disassembly and target values. |
 | `logging` | Verified on x64 and x86 | After displaying the Log tab, `clear` → `put` → Resource read preserved exact Chinese UTF-8 text; empty `put` returned `invalid_argument` |
 | `debug_gui` | Implemented; x64 live verified | Against the final deployed x64 plugin, detached inline snapshot returned exactly typed JSON text + one `image/png` block; the 2586×1530 decoded PNG had matching magic, dimensions, non-uniform pixels, and SHA-256. File mode returned one text block, wrote no-overwrite PNG metadata/path, and rejected existing, relative, non-PNG, and missing-parent paths. A real Notepad debug session proved default `focus=Disassembly`; Disassembly single-selection expanded resolved `start=end=0x7FFA8BF1D78E` to the complete 2-byte `EB00` instruction ending at `0x7FFA8BF1D78F`; Dump/Stack retained one byte; an explicit 16-byte Dump range round-tripped exactly. Bad window case, reversed range, unresolved expression, detached focus/get/set, final Resource detachment, and process cleanup passed. Evidence PNG: `out/debug-gui-e2e/x64-live-disassembly-2248.png`, SHA-256 `52DC1AFC9329F65C9C2038FED4E17103E88C19CDAD4CE0AD0B9E5457EB902428`. x86 build/deployment passed; x86 live GUI semantics remain unverified |
 | Tool output schema | Known SDK boundary | Current `[McpServerTool]` annotations do not set `UseStructuredContent`; typed results are returned as JSON text content and are not advertised as `outputSchema` in `tools/list` |
@@ -77,22 +80,22 @@
 
 ## Known conformance gaps
 
-1. The five reserved Resources and twelve target Tool definitions listed under Coverage are not registered. Their presence in the root README describes the intended product surface, not current implementation.
+1. The five reserved Resources and eleven target Tool definitions listed under Coverage are not registered. Their presence in the root README describes the intended product surface, not current implementation.
 2. The registered `memory` Tool currently implements only `read`; target actions `write`, `alloc`, and `free` remain undispatched and are deliberately excluded from its live description.
 3. General Symbol/PDB enumeration has no MCP-observable Resource/Tool contract yet. `disassemble` exposes only exact module-import/IAT references; large-PDB process stability is evidence about the host session only, not evidence that arbitrary symbols can be queried through MCP.
 
-## Temporary experiment deviations
+## Lifecycle note
 
-以下两项是用户确认保留的临时实验门控，不代表目标契约，也不应被后续实现当作默认行为：
-
-- `plugintemplate/plugin.cpp` 中裸 `mcp.start` 当前令 `enableDebugging=true`；实验结束后恢复为正式默认值。
-- `_DEBUG` 构建在插件初始化时自动调用 `mcp.start`；实验结束后移除。
+本次 `xrefs` 替换没有修改插件启动生命周期。`plugintemplate/plugin.cpp` 只在 `pluginInit` 注册
+`mcp.start` / `mcp.stop`，生产源码没有 `_DEBUG` 自动启动 hook；`mcp.start` 无参数时保留既有
+`enableDebugging=true` 默认值。最终 live 验证通过 x64dbg 官方 `-c` 初始命令显式执行
+`mcp.start 3001,localhost,1`，不依赖任何验证专用源码门控。
 
 ## Next implementation order
 
 1. 对 [ADR-006](adr/006-debug-gui-evidence-capture.md) 做 x86 GUI 专项验收：复用已通过的 x64 PNG/selection matrix，补齐三类 CPU pane 的 x86 focus/get/set 与清理证据。
 2. 补齐常驻 rich-param 查询：`parse_expression` → `get_string_at` → `find_pattern` → `get_call_stack`。
-3. 成对实现批量 Resource 与单项 Tool：symbols → labels → comments → bookmarks → functions；`xrefs` 只保留目标地址上的精细 Tool。Symbols 应包含可验证的 PDB 加载/枚举状态，使 Electron 大型 PDB 场景第一次具备 MCP 语义验收面。
+3. 成对实现批量 Resource 与单项 Tool：symbols → labels → comments → bookmarks → functions。Symbols 应包含可验证的 PDB 加载/枚举状态，使 Electron 大型 PDB 场景第一次具备 MCP 语义验收面。
 4. 扩展其余调试领域目录：`memory{write,alloc,free}` → `threads` → `assemble`；breakpoints 的批量 Resource 与五个首批 mutation actions、`memory{read}` 已完成。
 5. 重验双架构 Release、`mcp.stop` → restart 和端口占用失败传播；在行为稳定后，为单测/集成测试策略新增 ADR，并把 live smoke cases 固化为可重复测试入口。
 

@@ -782,24 +782,60 @@ Same precise-operation pattern as `labels` (without `temporary`). Bulk enumerati
 
 Bulk enumeration uses `x64dbg://bookmarks`. `BookmarkEntry { Address, Manual }`.
 
-### `xrefs{list_at, add, count_at, type_at}` ⚪
+### `xrefs{find}` 🟢
+
+Finds references using the same snapshot-first, fast-disassembly data path as x64dbg's
+Ctrl+R / `reffindrange` command. This replaces the former analyzed-XREF-database contract;
+the Tool does not call `DbgXrefGet`, mutate the analysis database, or scrape the GUI
+Reference View. All address parameters accept x64dbg expressions and returned addresses use
+the canonical `0x` + uppercase hexadecimal form.
+
+The action-mega input keeps parameters flat. `end` is inclusive and defaults to `addr`.
+`scanAddr` defaults to the current instruction pointer (`cip`); `scanSize` defaults to
+the containing memory region and is clipped to that region. The implementation bounds an
+explicit or inferred scan to 64 MiB.
+
+```cpp
+[McpServerTool(ReadOnly = true)]
+static XrefsResult^ Xrefs(
+    String^ action, String^ addr, String^ end,
+    String^ scanAddr, int scanSize
+);
+```
 
 | Action | Params | Returns |
 |---|---|---|
-| `list_at` | `{ addr: string }` | `List<XrefEntry>` |
-| `add` | `{ from: string, to: string }` | `XrefEntry` |
-| `count_at` | `{ addr: string }` | `{ count: int }` |
-| `type_at` | `{ addr: string }` | `{ type: "none" \| "data" \| "jmp" \| "call" }` |
+| `find` | `{ addr: string, end?: string, scanAddr?: string, scanSize?: int }` | `XrefsResult` |
 
 ```cpp
 public ref class XrefEntry
 {
 public:
-    property String^ From;
-    property String^ To;
-    property String^ Type;
+    property String^ Address;       // source instruction address
+    property String^ Disassembly;   // x64dbg fast-disassembly text
+    property String^ MatchKind;     // immediate | memory | branch
+    property String^ MatchedValue;  // value that fell in the target range
+};
+
+public ref class XrefsResult : McpResult
+{
+public:
+    property String^ TargetStart;
+    property String^ TargetEnd;
+    property String^ ScanStart;
+    property String^ ScanSize;
+    property List<XrefEntry^>^ Data;
 };
 ```
+
+The scanner reads the remote range into a local buffer (prefilled with `0xCC` for partial
+read failures), decodes with `DBGFUNCTIONS::DisasmFast`, and advances one byte after a
+decode failure. Matching follows x64dbg's `TYPE_VALUE`, `TYPE_MEMORY`, and `TYPE_ADDR`
+rules, including the sign-extended byte/word/dword immediate workaround. A successful
+scan may return an empty `data` array. Errors are `invalid_argument` (unknown action,
+missing/reversed target, invalid or oversized scan parameters), `not_attached`,
+`not_found` (unresolvable expression or absent memory page), and `x64dbg_failed` (snapshot
+or SDK failure).
 
 ---
 
@@ -1278,7 +1314,7 @@ Per-PoC-tool migration table for review. PoC reference: `copilot/refine-x64dbg-h
 | `GetLabelList`, `GetLabelAt`, `SetLabel`, `DeleteLabel`, `IsLabelTemporary`, `LabelFromString` | resource `x64dbg://labels` + `labels{...}` | Bulk list vs precise CRUD; `LabelFromString` collapses into `parse_expression` |
 | `GetCommentList`, `GetCommentAt`, `SetComment`, `DeleteComment` | resource `x64dbg://comments` + `comments{...}` | Bulk list vs precise CRUD |
 | `GetBookmarkList`, `GetBookmarkAt`, `SetBookmark`, `DeleteBookmark` | resource `x64dbg://bookmarks` + `bookmarks{...}` | Bulk list vs precise CRUD |
-| `GetXrefs`, `AddXref`, `GetXrefCountAt`, `GetXrefTypeAt` | `xrefs{...}` | |
+| `reffind` / `reffindrange` | `xrefs{action:"find"}` | Replaces analyzed-database XREF lookup with snapshot-first structured scanning |
 | `GetModuleList`, `GetMainModuleInfo`, `GetModuleByAddr`, `GetModuleByName`, `GetMainModuleSectionList`, `GetSectionListByAddr`, `GetSectionListByName`, `GetExports`, `GetImports` | resources `x64dbg://modules/...` | All become URI-addressable |
 | `IsValidPtr`, `GetMemoryMaps`, `GetMemoryBase`, `GetMemorySize` | resource `x64dbg://memory/maps` + tool `parse_expression` | Most queries reduce to expression resolution |
 | `MemoryRead` | `memory{action:"read"}` | Preserves `addr`, `size`, and optional `compress` (lz4); standalone Tool removed |

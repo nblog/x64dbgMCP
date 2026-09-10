@@ -14,6 +14,8 @@ ADRs capture **load-bearing design decisions** — choices that constrain how fu
 | [006](006-debug-gui-evidence-capture.md) | `DebugGUI` visual evidence capture and CPU-pane selection control | Accepted |
 | [007](007-scoped-hateoas-relation-keys.md) | Scoped snake_case relation keys for HATEOAS `_links` | Accepted |
 | [008](008-mcp-endpoint-path.md) | Use `/mcp` as the single Streamable HTTP endpoint | Accepted |
+| [009](009-string-reference-scanner-and-decoding.md) | Range-based string-reference scanner and decoding | Accepted |
+| [010](010-xrefs-reffind-scan.md) | Replace analyzed XREF lookup with on-demand RefFind-style scanning | Accepted |
 
 ## Status taxonomy
 
