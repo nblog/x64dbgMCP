@@ -59,7 +59,7 @@ Analysis and annotation (always registered):
 - `Labels { get, set, delete, set_batch, delete_batch }`
 - `Comments { get, set, delete, set_batch, delete_batch }`
 - `Bookmarks { get, set, delete }`
-- `Xrefs { list_at, add, count_at, type_at }`
+- `Xrefs { find }`
 
 Loaded only when `enableDebugging=true`, to avoid bloating the default tool schema:
 

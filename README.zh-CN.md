@@ -58,7 +58,7 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 - `Labels { get, set, delete, set_batch, delete_batch }`
 - `Comments { get, set, delete, set_batch, delete_batch }`
 - `Bookmarks { get, set, delete }`
-- `Xrefs { list_at, add, count_at, type_at }`
+- `Xrefs { find }`
 
 仅在 `enableDebugging=true` 时加载，避免默认 tool schema 膨胀：
 
