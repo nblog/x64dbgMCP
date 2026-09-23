@@ -35,6 +35,8 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 | 修改 server 启动 / 生命周期 / endpoint / 端口 / 命令注册 | [architecture.md](architecture.md) → [adr/008](adr/008-mcp-endpoint-path.md) |
 | 引入大型设计变更 | 先查 [adr/](adr/) 是否已存在；若无，**先提议新增 ADR**，再实施 |
 | 查 x64dbg SDK / MCP C# SDK 具体 API | [references.md](references.md) |
+| 落盘一次推进的闭环验收 | [validate/README.md](validate/README.md) |
+| 落盘闭环后的问题调查 / 踩坑记录 | [notes/README.md](notes/README.md) |
 
 ---
 
@@ -48,6 +50,8 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 | [tools-spec.md](tools-spec.md) | MCP Tool 与 Resource 目标契约（输入/输出 schema、错误条件；成熟度标记不代表已实现） |
 | [implementation-status.md](implementation-status.md) | 当前实现覆盖率、验证边界、临时实验偏离与下一批实施顺序 |
 | [adr/](adr/) | Architecture Decision Records — 关键设计决策的可追溯快照 |
+| [notes/](notes/) | 追加式踩坑与问题调查回溯记录（闭环后落盘，带 ISO 8601 日期） |
+| [validate/](validate/) | 追加式闭环验收记录（带 ISO 8601 日期：验证范围、结果、最小证据） |
 | [references.md](references.md) | 外部参考索引：x64dbg SDK 头、MCP 规范、ASP.NET Core 配置 |
 
 ---
@@ -59,3 +63,4 @@ x64dbgMCP 是一款 [x64dbg](https://github.com/x64dbg/x64dbg) 插件，通过 [
 3. **One authoritative source** — 同一信息只在一处定义，其它地方用链接引用。例如返回 envelope 形态在 [conventions.md](conventions.md#4-result-envelope) 定义，[tools-spec.md](tools-spec.md) 只引用不重复。
 4. **Decisions are first-class** — 设计选择走 [ADR](adr/)。代码注释只解释"为什么这里反直觉"，不承载决策本体。
 5. **语言混合**: README/ADR 用中文（讨论密度高）；conventions/tools-spec 用英文（贴近代码）。
+6. **Append-only vs living docs**：`notes/` 与 `validate/` 是按时间追加、不回改历史的回溯 CHANGELOG；设计文档、ADR 与 [implementation-status.md](implementation-status.md) 是持续维护、可整体改写的活文档。未闭环的排查、实验或实现过程草稿不进入 `docs/`。
