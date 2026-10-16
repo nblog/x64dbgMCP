@@ -16,6 +16,7 @@ ADRs capture **load-bearing design decisions** — choices that constrain how fu
 | [008](008-mcp-endpoint-path.md) | Use `/mcp` as the single Streamable HTTP endpoint | Accepted |
 | [009](009-string-reference-scanner-and-decoding.md) | Range-based string-reference scanner and decoding | Accepted |
 | [010](010-xrefs-reffind-scan.md) | Replace analyzed XREF lookup with on-demand RefFind-style scanning | Accepted |
+| [011](011-test-organization.md) | Organize tests by capability group under `test/` | Proposed |
 
 ## Status taxonomy
 

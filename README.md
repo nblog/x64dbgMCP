@@ -76,6 +76,21 @@ Loaded only when `enableDebugging=true`, to avoid bloating the default tool sche
 
 ## Quick Start
 
+### Prerequisites
+
+Install the plugin dependencies before loading it:
+
+- .NET 10+
+- Microsoft Visual C++ Redistributable (`Microsoft.VCRedist`), both x64 and x86
+
+Install them with winget:
+
+```powershell
+winget install --id Microsoft.DotNet.SDK.10
+winget install --id Microsoft.VCRedist.2015+.x64
+winget install --id Microsoft.VCRedist.2015+.x86
+```
+
 ### 1. Load the Plugin
 
 Place the build artifacts into x64dbg's `plugins/` directory:

@@ -75,6 +75,21 @@ x64dbgMCP 是一个 C++/CLI 编写的 x64dbg 插件，启动一个嵌入式 MCP 
 
 ## Quick Start
 
+### 插件依赖项
+
+装载插件前，请先安装以下依赖项：
+
+- .NET 10+
+- Microsoft Visual C++ Redistributable（`Microsoft.VCRedist`），包括 x64 和 x86 版本
+
+可通过 winget 安装：
+
+```powershell
+winget install --id Microsoft.DotNet.SDK.10
+winget install --id Microsoft.VCRedist.2015+.x64
+winget install --id Microsoft.VCRedist.2015+.x86
+```
+
 ### 1. 装载插件
 
 把构建产物放进 x64dbg 的 `plugins/` 目录：
