@@ -95,8 +95,8 @@ winget install --id Microsoft.VCRedist.2015+.x86
 
 Place the build artifacts into x64dbg's `plugins/` directory:
 
-- 32-bit: `x64dbgMCP.dp32` → `x32dbg/plugins/`
-- 64-bit: `x64dbgMCP.dp64` → `x64dbg/plugins/`
+- 32-bit: `x64dbgMCP.dp32` → `release/x32dbg/plugins/`
+- 64-bit: `x64dbgMCP.dp64` → `release/x64dbg/plugins/`
 
 Start the server:
 
@@ -105,6 +105,8 @@ mcp.start                    ; default port=3001, host=localhost
 mcp.start 3001               ; specify a port
 mcp.start 3001,0.0.0.0       ; explicit non-loopback bind; place behind a trusted authenticated boundary
 ```
+
+> Launch from the command line: `release\x64\x64dbg.exe -c "mcp.start 3001"`
 
 The default listener is `http://localhost:3001`; the single MCP endpoint clients configure is `http://localhost:3001/mcp`.
 
@@ -121,9 +123,9 @@ Or in your client's config file:
 ```json
 {
   "mcpServers": {
-		"x64dbgmcp": {
-			"url": "http://localhost:3001/mcp",
-		}
+    "x64dbgmcp": {
+      "url": "http://localhost:3001/mcp",
+    }
   }
 }
 ```

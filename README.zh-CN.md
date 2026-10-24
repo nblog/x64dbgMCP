@@ -94,8 +94,8 @@ winget install --id Microsoft.VCRedist.2015+.x86
 
 把构建产物放进 x64dbg 的 `plugins/` 目录：
 
-- 32 位：`x64dbgMCP.dp32` → `x32dbg/plugins/`
-- 64 位：`x64dbgMCP.dp64` → `x64dbg/plugins/`
+- 32 位：`x64dbgMCP.dp32` → `release/x32dbg/plugins/`
+- 64 位：`x64dbgMCP.dp64` → `release/x64dbg/plugins/`
 
 启动服务：
 
@@ -104,6 +104,8 @@ mcp.start                    ; 默认 port=3001, host=localhost
 mcp.start 3001               ; 指定端口
 mcp.start 3001,0.0.0.0       ; 显式非 loopback 绑定；应放在可信且有认证的边界后
 ```
+
+> 命令行直接启动 `release\x64\x64dbg.exe -c "mcp.start 3001"`
 
 默认 listener 是 `http://localhost:3001`；客户端应配置的唯一 MCP endpoint 是 `http://localhost:3001/mcp`。
 
@@ -120,9 +122,9 @@ claude mcp add --transport http x64dbg http://localhost:3001/mcp
 ```json
 {
   "mcpServers": {
-		"x64dbgmcp": {
-			"url": "http://localhost:3001/mcp",
-		}
+    "x64dbgmcp": {
+      "url": "http://localhost:3001/mcp",
+    }
   }
 }
 ```
