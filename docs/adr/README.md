@@ -7,7 +7,7 @@ ADRs capture **load-bearing design decisions** — choices that constrain how fu
 | # | Title | Status |
 |---|---|---|
 | [001](001-mcp-only-no-rest-shadow-api.md) | MCP-only transport; no REST shadow API | Accepted |
-| [002](002-resolve-via-x64dbg-expression.md) | Resolve names (registers/flags/labels) via x64dbg expression rather than enum mirrors | Accepted |
+| [002](002-resolve-via-x64dbg-expression.md) | Resolve names (registers/flags/labels) via x64dbg expression rather than enum mirrors | Accepted; bare flags partially superseded by ADR-012 |
 | [003](003-tool-resource-action-three-layer.md) | Three-layer surface: Resources + rich-param Tools + action-mega Tools | Accepted |
 | [004](004-typed-result-with-envelope.md) | Typed result classes wrapped in a common `McpResult` envelope | Accepted |
 | [005](005-hateoas-links-on-navigation-roots.md) | HATEOAS `_links` on navigation roots only, not on every leaf | Accepted |
@@ -17,6 +17,8 @@ ADRs capture **load-bearing design decisions** — choices that constrain how fu
 | [009](009-string-reference-scanner-and-decoding.md) | Range-based string-reference scanner and decoding | Accepted |
 | [010](010-xrefs-reffind-scan.md) | Replace analyzed XREF lookup with on-demand RefFind-style scanning | Accepted |
 | [011](011-test-organization.md) | Organize tests by capability group under `test/` | Proposed |
+| [012](012-canonical-flag-names.md) | Canonical MCP flag names; partial supersession of ADR-002 for bare flags | Accepted |
+| [013](013-pause-command-acceptance.md) | Report native pause-command rejection without waiting for pause events | Accepted |
 
 ## Status taxonomy
 

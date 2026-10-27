@@ -47,6 +47,8 @@ Parameter type: always `String^` for address-like inputs. Never `duint` / `int` 
 
 Parameter description: `[Description("Address or x64dbg expression (e.g. \"rax\", \"kernel32:CreateFileW\", \"cip+0x10\")")]`.
 
+Bare flag names are the bounded exception defined by [ADR-012](adr/012-canonical-flag-names.md): `cf`, `pf`, `af`, `zf`, `sf`, `tf`, `if`, `df`, and `of` are case-insensitive public names. Helpers adapt a complete bare flag name to native syntax internally, and register get/set results use the lowercase public name. The native underscore spelling remains accepted for compatibility. Compound expressions retain native syntax and are not rewritten. One internal flag-name/mask definition supplies this adaptation and dump extraction.
+
 ---
 
 ## 3. Address Outputs
@@ -166,6 +168,8 @@ See [adr/005-hateoas-links-on-navigation-roots.md](adr/005-hateoas-links-on-navi
 
 ## 7. Pagination & Bulk Parameters
 
+Clients should follow returned `_links` or expand the published URI template in variable order. MCP C# SDK 2.1.0 matches query variables in template order; for `{?offset,limit,length}`, `?limit=5&length=4` matches while `?length=4&limit=5` is rejected before resource dispatch. Omitted variables may be skipped while preserving the order of those supplied.
+
 List-shaped Resources and operations (`x64dbg://modules`, `x64dbg://symbols`, `x64dbg://breakpoints`, and any localized list action) accept:
 
 - `offset : int = 0` — index of first item
@@ -221,6 +225,7 @@ Tools execute on ASP.NET Core thread-pool threads. Most `Script::*` APIs are saf
 - `Script::Gui::*` — must be marshalled to the GUI thread. Use `GuiExecuteOnGuiThread` or queue via `DbgCmdExec` if a x64dbg command equivalent exists.
 - Composed GUI workflows — marshal the ordered navigation/mutation/refresh/readback sequence as one GUI-thread operation. For `DebugGUI`, call `Script::Gui::Refresh()` and process pending GUI events before selection readback or pixel capture; do not return success while the visible pane still reflects pre-request state.
 - `DbgCmdExec` — fire-and-forget; use `DbgCmdExecDirect` if you need to wait for completion.
+- `debug_control{action:"pause"}` uses direct command dispatch to report native handler rejection. It never waits for a pause event; success still requires Resource polling to confirm the final state. See [ADR-013](adr/013-pause-command-acceptance.md).
 - Do **not** call `Script::Debug::Run` / `StepInto` / etc. from a tool that itself blocks waiting for a pause — that deadlocks the request thread. Either return immediately or expose the wait as a separate poll-based tool.
 
 When marshalling is required, document it on the tool method with a one-line comment, e.g. `// Requires GUI thread; marshalled via GuiExecuteOnGuiThread`.

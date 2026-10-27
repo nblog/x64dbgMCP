@@ -850,7 +850,7 @@ These tools are registered only when `McpServerHost::Start(..., enableDebugging:
 | `attach` | `{ pid: int, detach2attach?: bool = false }` | Attaches to a positive decimal Windows PID. If a debug session is already active, the call fails before side effects unless `detach2attach=true`; the opt-in path detaches the current debuggee, leaves it running, and then attaches to `pid`. |
 | `stop` | — | Detach/terminate |
 | `run` | — | Returns immediately; does not wait for next pause |
-| `pause` | — | |
+| `pause` | — | Direct native command dispatch; reports handler rejection, then returns without waiting for the pause event. Confirm final state through Resources. |
 | `StepInto` | — | |
 | `StepOver` | — | |
 | `StepOut` | — | |
@@ -860,6 +860,10 @@ These tools are registered only when `McpServerHost::Start(..., enableDebugging:
 `attach` dispatches x64dbg's `attach .<pid>` command, where the leading dot preserves decimal PID semantics. It uses direct command execution so a `detach2attach=true` call can temporarily force x64dbg's `Engine/DetachOnAttach` behavior for that dispatch and restore the prior setting before returning. The option is call-local and does not persistently change the user's debugger configuration. A successful return means the attach command handler accepted the target and started the attach debug loop; it does not wait for the system breakpoint. Clients should confirm the resulting PID through `x64dbg://session/debuggee`.
 
 Returns a `DebugControlResult` envelope with the echoed `action` and post-dispatch `isDebugging` / `isRunning` snapshot. `commandOutput` is reserved in the current result class but is not populated by the implementation; `run_command` reports command acceptance, not captured console output.
+
+`pause` follows [ADR-013](adr/013-pause-command-acceptance.md): unlike queued run/init/stop/Step* actions, it reports a rejected native handler as `x64dbg_failed`, including an already paused target or a suspended active thread. A successful handler return still does not wait for the next pause event. The Tool does not automatically select or resume threads; clients confirm `x64dbg://session` plus `x64dbg://session/debuggee` and handle final-state timeouts.
+
+`init` preserves x64dbg's database restoration behavior: saved command-line arguments can override supplied `cmdLine`, and an existing debugger instance can retain the restored command line in memory. To validate a new command line independently, stop and exit the dedicated test debugger before isolating its backed-up database and launching a clean instance. This Tool does not silently delete or overwrite the user's saved debugging state.
 
 Errors: `invalid_argument` (unknown action, missing/zero `pid`, missing action-specific parameter, or `attach` attempted during an active session without `detach2attach=true`), `not_attached` (session action without a debuggee), `x64dbg_failed` (x64dbg rejected the dispatched command or the temporary detach-on-attach setting could not be applied/restored).
 
@@ -948,7 +952,8 @@ post-readback mismatch).
 | `set` | `{ name: string, value: string }` | `{ name, value, previous }` |
 | `dump` | `{ threadId?: int }` | `RegisterDumpResult` |
 
-`name` is resolved by x64dbg; we do not maintain an enum mirror. See [adr/002-resolve-via-x64dbg-expression.md](adr/002-resolve-via-x64dbg-expression.md).
+General register names and expressions are resolved by x64dbg; we do not maintain a register enum mirror. See [adr/002-resolve-via-x64dbg-expression.md](adr/002-resolve-via-x64dbg-expression.md).
+Bare flag names follow [ADR-012](adr/012-canonical-flag-names.md): clients use `zf` (and the other dump flag names) for input and output; the native underscore spelling is adapted internally. Matching is case-insensitive, native underscore inputs remain compatible, and the returned flag `name` is lowercase without an underscore. Flag writes return the actual native boolean readback rather than echoing a possibly nonzero integer. One definition supplies the names/masks for get, set, and dump; compound native expressions are not token-rewritten.
 For an inactive thread, register values come from its native thread context and require the debuggee to be paused; a running target returns `not_paused`. `lastError` and `lastStatus` may be null when x64dbg does not expose the TEB-derived values for that context.
 
 `registers{action:"dump"}` is the only register-dump Tool; there is no separate `get_register_dump` Tool because it would duplicate the same operation.

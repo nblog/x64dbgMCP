@@ -99,6 +99,22 @@ namespace x64dbgMCP {
     ref class Helpers abstract sealed
     {
     public:
+        static initonly IReadOnlyDictionary<String^, UInt64>^ FlagMasks = CreateFlagMasks();
+
+        static String^ CanonicalFlagName(String^ name)
+        {
+            if (String::IsNullOrEmpty(name)) return nullptr;
+            String^ candidate = name->StartsWith("_", StringComparison::Ordinal)
+                ? name->Substring(1) : name;
+            return FlagMasks->ContainsKey(candidate) ? candidate->ToLowerInvariant() : nullptr;
+        }
+
+        static String^ NativeExpression(String^ expression)
+        {
+            String^ flag = CanonicalFlagName(expression);
+            return flag != nullptr ? "_" + flag : expression;
+        }
+
         static String^ PluginVersion()
         {
             return (gcnew Version(
@@ -337,7 +353,7 @@ namespace x64dbgMCP {
             result = 0;
             if (String::IsNullOrEmpty(expr)) return false;
 
-            std::string s = msclr::interop::marshal_as<std::string>(expr);
+            std::string s = msclr::interop::marshal_as<std::string>(NativeExpression(expr));
             duint v = 0;
             if (!Script::Misc::ParseExpression(s.c_str(), &v)) return false;
             result = v;
@@ -365,6 +381,22 @@ namespace x64dbgMCP {
             l->Tool = tool;
             l->Args = args;
             return l;
+        }
+
+    private:
+        static IReadOnlyDictionary<String^, UInt64>^ CreateFlagMasks()
+        {
+            auto masks = gcnew Dictionary<String^, UInt64>(StringComparer::OrdinalIgnoreCase);
+            masks["cf"] = 0x0001;
+            masks["pf"] = 0x0004;
+            masks["af"] = 0x0010;
+            masks["zf"] = 0x0040;
+            masks["sf"] = 0x0080;
+            masks["tf"] = 0x0100;
+            masks["if"] = 0x0200;
+            masks["df"] = 0x0400;
+            masks["of"] = 0x0800;
+            return gcnew System::Collections::ObjectModel::ReadOnlyDictionary<String^, UInt64>(masks);
         }
     };
 
@@ -3387,7 +3419,7 @@ namespace x64dbgMCP {
             "  attach      : { pid, detach2attach? } -- attach to a process; opt in to detaching an active debuggee\n"
             "  stop        : detach/terminate the debuggee\n"
             "  run         : continue execution (returns immediately, does not wait for next pause)\n"
-            "  pause       : break into the debugger\n"
+            "  pause       : request a break; reports native handler rejection, then poll session state\n"
             "  StepInto    : single-step into\n"
             "  StepOver    : single-step over calls\n"
             "  StepOut     : run until current function returns\n"
@@ -3426,11 +3458,15 @@ namespace x64dbgMCP {
             bool useDirect = false;
 
             if (action == "run")             cmd = "run";
-            else if (action == "pause")      cmd = "pause";
-            else if (action == "stop")       cmd = "stop";
             else if (action == "StepInto")   cmd = "StepInto";
             else if (action == "StepOver")   cmd = "StepOver";
             else if (action == "StepOut")    cmd = "StepOut";
+            else if (action == "stop")       cmd = "stop";
+            else if (action == "pause")
+            {
+                cmd = "pause";
+                useDirect = true;
+            }
             else if (action == "init")
             {
                 if (String::IsNullOrEmpty(exePath))
@@ -3476,6 +3512,8 @@ namespace x64dbgMCP {
 
             std::string c = msclr::interop::marshal_as<std::string>(cmd);
             bool ok = useDirect ? DbgCmdExecDirect(c.c_str()) : DbgCmdExec(c.c_str());
+            r->IsDebugging = DbgIsDebugging();
+            r->IsRunning = r->IsDebugging && DbgIsRunning();
 
             if (!ok)
             {
@@ -3485,8 +3523,6 @@ namespace x64dbgMCP {
             }
 
             r->Success = true;
-            r->IsDebugging = DbgIsDebugging();
-            r->IsRunning = r->IsDebugging && DbgIsRunning();
             return r;
         }
 
@@ -3705,7 +3741,7 @@ namespace x64dbgMCP {
         [McpServerTool]
         [Description(
             "Registers control. Actions:\n"
-            "  get  : { name } -> { name, value }       — name is any x64dbg-known register/flag (rax, eip, zf, r8d, _zf...).\n"
+            "  get  : { name } -> { name, value }       — registers use x64dbg names (rax, eip, r8d); flags use dump names (zf, cf...).\n"
             "  set  : { name, value } -> { name, value, previous } — value accepts any x64dbg expression.\n"
             "  dump : { threadId? } -> { registers, flags } — all GPRs (arch-agnostic) + flags for the active or specified thread."
         )]
@@ -4608,7 +4644,8 @@ namespace x64dbgMCP {
                 return r;
             }
             r->Success = true;
-            r->Name = name;
+            String^ flag = Helpers::CanonicalFlagName(name);
+            r->Name = flag != nullptr ? flag : name;
             r->Value = Helpers::FormatAddress(v);
             return r;
         }
@@ -4634,7 +4671,7 @@ namespace x64dbgMCP {
                 return r;
             }
 
-            std::string n = msclr::interop::marshal_as<std::string>(name);
+            std::string n = msclr::interop::marshal_as<std::string>(Helpers::NativeExpression(name));
             if (!DbgValSetScalar(n.c_str(), v))
             {
                 r->Success = false;
@@ -4642,8 +4679,16 @@ namespace x64dbgMCP {
                 return r;
             }
 
+            String^ flag = Helpers::CanonicalFlagName(name);
+            if (flag != nullptr && !Helpers::ResolveExpression(flag, v))
+            {
+                r->Success = false;
+                r->Error = Helpers::MakeError("x64dbg_failed", "could not read back flag: " + flag);
+                return r;
+            }
+
             r->Success = true;
-            r->Name = name;
+            r->Name = flag != nullptr ? flag : name;
             r->Value = Helpers::FormatAddress(v);
             if (prevOk) r->Previous = Helpers::FormatAddress(prev);
             return r;
@@ -4809,15 +4854,8 @@ namespace x64dbgMCP {
 
         static void PopulateFlags(RegisterDumpResult^ result, duint eflags)
         {
-            result->Flags["cf"] = (eflags & 0x0001) != 0;
-            result->Flags["pf"] = (eflags & 0x0004) != 0;
-            result->Flags["af"] = (eflags & 0x0010) != 0;
-            result->Flags["zf"] = (eflags & 0x0040) != 0;
-            result->Flags["sf"] = (eflags & 0x0080) != 0;
-            result->Flags["tf"] = (eflags & 0x0100) != 0;
-            result->Flags["if"] = (eflags & 0x0200) != 0;
-            result->Flags["df"] = (eflags & 0x0400) != 0;
-            result->Flags["of"] = (eflags & 0x0800) != 0;
+            for each (KeyValuePair<String^, UInt64> flag in Helpers::FlagMasks)
+                result->Flags[flag.Key] = ((UInt64)eflags & flag.Value) != 0;
         }
     };
 }
