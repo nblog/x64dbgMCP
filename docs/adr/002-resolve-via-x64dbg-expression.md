@@ -4,6 +4,7 @@
 - **Date**: 2026-05-24
 - **Amended**: 2026-08-10
 - **Deciders**: @nblog
+- **Partially superseded by**: [ADR-012](012-canonical-flag-names.md), for complete bare flag-name adaptation; other expression/register rules remain in force.
 
 ## Context
 
